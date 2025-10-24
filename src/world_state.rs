@@ -63,7 +63,7 @@ pub struct WorldState {
 
     // Tracked positions
     pub exit_pos: Option<Pos>,
-    pub key_positions: HashMap<Color, Pos>,
+    pub key_positions: HashMap<Color, Vec<Pos>>,
     pub door_positions: HashMap<Color, Vec<Pos>>,
     pub enemy_positions: Vec<Pos>,
     pub boulder_positions: Vec<Pos>,
@@ -209,7 +209,7 @@ impl WorldState {
         });
 
         // Track which permanent items we can currently see
-        let mut seen_keys: HashMap<Color, Pos> = HashMap::new();
+        let mut seen_keys: HashMap<Color, Vec<Pos>> = HashMap::new();
         let mut seen_doors: HashMap<Color, Vec<Pos>> = HashMap::new();
         let mut seen_pressure_plates: HashMap<Color, Vec<Pos>> = HashMap::new();
         let mut seen_boulders: Vec<Pos> = Vec::new();
@@ -316,13 +316,13 @@ impl WorldState {
                     match tile {
                         Tile::Exit => self.exit_pos = Some(pos),
                         Tile::KeyRed => {
-                            seen_keys.insert(Color::Red, pos);
+                            seen_keys.entry(Color::Red).or_default().push(pos);
                         }
                         Tile::KeyGreen => {
-                            seen_keys.insert(Color::Green, pos);
+                            seen_keys.entry(Color::Green).or_default().push(pos);
                         }
                         Tile::KeyBlue => {
-                            seen_keys.insert(Color::Blue, pos);
+                            seen_keys.entry(Color::Blue).or_default().push(pos);
                         }
                         Tile::DoorRed => {
                             seen_doors.entry(Color::Red).or_default().push(pos);
@@ -365,18 +365,33 @@ impl WorldState {
             }
         }
 
-        // Update key positions: keep old ones we can't see, update with newly seen ones
-        for (color, pos) in seen_keys {
-            self.key_positions.insert(color, pos);
+        // Update key positions: merge newly seen keys with previously known ones
+        for (color, new_positions) in seen_keys {
+            self.key_positions
+                .entry(color)
+                .or_default()
+                .extend(new_positions);
         }
-        // Remove keys that we saw become Empty (picked up)
-        self.key_positions.retain(|_color, pos| {
-            if let Some(tile) = self.map.get(pos) {
-                matches!(tile, Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue)
-            } else {
-                true // Keep if we haven't seen this position
+        // Deduplicate and remove picked up keys
+        for positions in self.key_positions.values_mut() {
+            // Remove duplicates manually
+            let mut unique_positions: Vec<Pos> = Vec::new();
+            for &pos in positions.iter() {
+                if !unique_positions.contains(&pos) {
+                    unique_positions.push(pos);
+                }
             }
-        });
+            *positions = unique_positions;
+
+            // Remove keys that have been picked up
+            positions.retain(|pos| {
+                if let Some(tile) = self.map.get(pos) {
+                    matches!(tile, Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue)
+                } else {
+                    true // Keep if we haven't seen this position
+                }
+            });
+        }
 
         // Update door positions: merge newly seen doors with previously known ones
         for (color, new_positions) in seen_doors {
@@ -676,7 +691,18 @@ impl WorldState {
     }
 
     pub fn knows_key_location(&self, color: Color) -> bool {
-        self.key_positions.contains_key(&color)
+        self.key_positions
+            .get(&color)
+            .is_some_and(|keys| !keys.is_empty())
+    }
+
+    pub fn closest_key(&self, color: Color) -> Option<Pos> {
+        self.key_positions.get(&color).and_then(|positions| {
+            positions
+                .iter()
+                .min_by_key(|pos| self.player_pos.distance(pos))
+                .copied()
+        })
     }
 
     pub fn draw_ascii_map(&self) -> String {

@@ -117,9 +117,9 @@ impl ExecuteGoal for ExploreGoal {
 
 impl ExecuteGoal for GetKeyGoal {
     fn execute(&self, world: &mut WorldState) -> Option<DirectedAction> {
-        let key_pos = world.key_positions.get(&self.0)?;
-        world.current_destination = Some(*key_pos);
-        let path = AStar::find_path(world, world.player_pos, *key_pos, false)?;
+        let key_pos = world.closest_key(self.0)?;
+        world.current_destination = Some(key_pos);
+        let path = AStar::find_path(world, world.player_pos, key_pos, false)?;
         world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }

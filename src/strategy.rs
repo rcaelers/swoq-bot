@@ -250,18 +250,18 @@ impl SelectGoal for GetKeyForDoorStrategy {
                 world.knows_key_location(color)
             );
             if world.knows_key_location(color) {
-                if let Some(key_pos) = world.key_positions.get(&color) {
-                    debug!("Key for {:?} is at {:?}", color, key_pos);
+                if let Some(key_pos) = world.closest_key(color) {
+                    debug!("Closest key for {:?} is at {:?}", color, key_pos);
                     // Use can_open_doors=true to allow using keys we already have
                     // Use avoid_keys=true to not pick up other keys along the way
-                    if AStar::find_path(world, world.player_pos, *key_pos, true).is_some() {
+                    if AStar::find_path(world, world.player_pos, key_pos, true).is_some() {
                         debug!("(key is reachable)");
                         return Some(Goal::GetKey(color));
                     } else {
                         debug!("Key at {:?} is not reachable", key_pos);
                     }
                 } else {
-                    debug!("Key position not found in key_positions map!");
+                    debug!("No keys found in key_positions map for {:?}!", color);
                 }
             }
         }
