@@ -42,12 +42,16 @@ pub struct GameStateResource {
     pub state: Arc<Mutex<Option<WorldState>>>,
     pub last_tick: i32,
     pub camera_initialized: bool,
+    pub log_background_created: bool,
     pub log_rx: Arc<Mutex<mpsc::Receiver<LogMessage>>>,
     pub log_buffer: Vec<LogMessage>,
 }
 
 #[derive(Component)]
 struct LogPane;
+
+#[derive(Component)]
+struct LogPaneBackground;
 
 #[derive(Resource)]
 pub struct ReadySignal {
@@ -123,6 +127,7 @@ pub fn run_visualizer(
             state,
             last_tick: -1,
             camera_initialized: false,
+            log_background_created: false,
             log_rx: Arc::new(Mutex::new(log_rx)),
             log_buffer: Vec::new(),
         })
@@ -268,6 +273,64 @@ fn update_map(
     );
 }
 
+/// Helper function to spawn a border around a tile
+/// Creates 4 thin rectangles forming an outline
+fn spawn_tile_border(
+    commands: &mut Commands,
+    center_x: f32,
+    center_y: f32,
+    color: Color,
+    border_width: f32,
+    z: f32,
+) {
+    let half_tile = TILE_SIZE / 2.0;
+    let half_border = border_width / 2.0;
+
+    // Top border
+    commands.spawn((
+        Sprite {
+            color,
+            custom_size: Some(Vec2::new(TILE_SIZE + border_width, border_width)),
+            ..default()
+        },
+        Transform::from_xyz(center_x, center_y - half_tile - half_border, z),
+        MapEntity,
+    ));
+
+    // Bottom border
+    commands.spawn((
+        Sprite {
+            color,
+            custom_size: Some(Vec2::new(TILE_SIZE + border_width, border_width)),
+            ..default()
+        },
+        Transform::from_xyz(center_x, center_y + half_tile + half_border, z),
+        MapEntity,
+    ));
+
+    // Left border
+    commands.spawn((
+        Sprite {
+            color,
+            custom_size: Some(Vec2::new(border_width, TILE_SIZE + border_width)),
+            ..default()
+        },
+        Transform::from_xyz(center_x - half_tile - half_border, center_y, z),
+        MapEntity,
+    ));
+
+    // Right border
+    commands.spawn((
+        Sprite {
+            color,
+            custom_size: Some(Vec2::new(border_width, TILE_SIZE + border_width)),
+            ..default()
+        },
+        Transform::from_xyz(center_x + half_tile + half_border, center_y, z),
+        MapEntity,
+    ));
+}
+
 fn render_world_state(
     commands: &mut Commands,
     world_state: &WorldState,
@@ -275,19 +338,6 @@ fn render_world_state(
     camera_query: &mut Query<&mut Transform, With<Camera2d>>,
     camera_initialized: &mut bool,
 ) {
-    // Add log pane background
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(MAP_WIDTH),
-            top: Val::Px(0.0),
-            width: Val::Px(LOG_PANE_WIDTH),
-            height: Val::Px(WINDOW_HEIGHT),
-            ..default()
-        },
-        BackgroundColor(Color::srgb(0.05, 0.05, 0.08)),
-        MapEntity,
-    ));
     tracing::debug!(
         "Rendering {} tiles for level {} tick {}",
         world_state.map.len(),
@@ -368,16 +418,8 @@ fn render_world_state(
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);
 
-            // Draw path as a semi-transparent yellow square
-            commands.spawn((
-                Sprite {
-                    color: Color::srgba(1.0, 1.0, 0.0, 0.4), // Yellow, 40% opacity
-                    custom_size: Some(Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8)),
-                    ..default()
-                },
-                Transform::from_xyz(x, y, 0.6), // z=0.6 to be above frontier but below player
-                MapEntity,
-            ));
+            // Draw path as yellow outline border
+            spawn_tile_border(commands, x, y, Color::srgb(1.0, 1.0, 0.0), 2.0, 0.6);
         }
     }
 
@@ -386,16 +428,8 @@ fn render_world_state(
         let x = center_x + (dest.x as f32 * TILE_SIZE);
         let y = center_y - (dest.y as f32 * TILE_SIZE);
 
-        // Draw destination as a bright red circle/square
-        commands.spawn((
-            Sprite {
-                color: Color::srgba(1.0, 0.0, 0.0, 0.7), // Bright red, 70% opacity
-                custom_size: Some(Vec2::new(TILE_SIZE * 0.6, TILE_SIZE * 0.6)),
-                ..default()
-            },
-            Transform::from_xyz(x, y, 0.7), // z=0.7 to be above path but below player
-            MapEntity,
-        ));
+        // Draw destination as bright red outline border (thicker)
+        spawn_tile_border(commands, x, y, Color::srgb(1.0, 0.0, 0.0), 3.0, 0.7);
     }
 
     // Render the player
@@ -445,10 +479,23 @@ fn update_log_pane(
     mut commands: Commands,
     mut game_state: ResMut<GameStateResource>,
     log_pane_query: Query<Entity, With<LogPane>>,
+    log_background_query: Query<Entity, With<LogPaneBackground>>,
 ) {
-    // Clear existing log pane
-    for entity in log_pane_query.iter() {
-        commands.entity(entity).despawn();
+    // Create log pane background once (persists across map updates)
+    if !game_state.log_background_created && log_background_query.is_empty() {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(MAP_WIDTH),
+                top: Val::Px(0.0),
+                width: Val::Px(LOG_PANE_WIDTH),
+                height: Val::Px(WINDOW_HEIGHT),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.05, 0.05, 0.08)),
+            LogPaneBackground,
+        ));
+        game_state.log_background_created = true;
     }
 
     // Read all available log messages from channel and add to buffer
@@ -459,12 +506,22 @@ fn update_log_pane(
         }
     } // Lock is released here
 
+    // Only update if we have new messages
+    if new_messages.is_empty() {
+        return;
+    }
+
     // Add new messages to buffer
     game_state.log_buffer.extend(new_messages);
 
     // Trim buffer if it gets too large
     if game_state.log_buffer.len() > MAX_LOG_ENTRIES * 2 {
         game_state.log_buffer.drain(0..MAX_LOG_ENTRIES);
+    }
+
+    // Clear existing log pane to rebuild with updated messages
+    for entity in log_pane_query.iter() {
+        commands.entity(entity).despawn();
     }
 
     // Get last MAX_LOG_ENTRIES from buffer
@@ -474,10 +531,6 @@ fn update_log_pane(
         0
     };
     let log_messages: Vec<LogMessage> = game_state.log_buffer[start_idx..].to_vec();
-
-    if log_messages.is_empty() {
-        return;
-    }
 
     // Create log pane container
     let container = commands
