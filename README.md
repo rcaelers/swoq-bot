@@ -18,7 +18,7 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] Level 12: 2 Player mode
 - [ ] AI strategies
 - [ ] Investigate hangups
-  - [ ] incorrect enemies present in HuntEnemyWithSwordStrategy
+  - [x] incorrect enemies present in HuntEnemyWithSwordStrategy
   - [ ] Hang when trying to go through door
 
 ## License

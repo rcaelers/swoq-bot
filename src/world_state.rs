@@ -187,8 +187,8 @@ impl WorldState {
     fn integrate_surroundings(&mut self, surroundings: &[i32], center: Pos) {
         let size = (self.visibility_range * 2 + 1) as usize;
 
-        // Clear old tracked positions that are temporary/movable (only enemies mq)
-        self.enemy_positions.clear();
+        // Don't clear enemy_positions - enemies don't move when they can't see the player
+        // We'll update them below when we see them, or remove them if they're confirmed gone
 
         // Calculate visibility bounds
         let min_x = center.x - self.visibility_range;
@@ -215,6 +215,7 @@ impl WorldState {
         let mut seen_boulders: Vec<Pos> = Vec::new();
         let mut seen_swords: Vec<Pos> = Vec::new();
         let mut seen_health: Vec<Pos> = Vec::new();
+        let mut seen_enemies: Vec<Pos> = Vec::new();
 
         for (idx, &tile_val) in surroundings.iter().enumerate() {
             let row = (idx / size) as i32;
@@ -332,7 +333,7 @@ impl WorldState {
                         Tile::DoorBlue => {
                             seen_doors.entry(Color::Blue).or_default().push(pos);
                         }
-                        Tile::Enemy => self.enemy_positions.push(pos),
+                        Tile::Enemy => seen_enemies.push(pos),
                         Tile::Boulder => {
                             seen_boulders.push(pos);
                         }
@@ -522,6 +523,37 @@ impl WorldState {
             if let Some(tile) = self.map.get(pos) {
                 matches!(tile, Tile::Health)
             } else {
+                true
+            }
+        });
+
+        // Update enemy positions: add newly seen enemies, remove enemies we can confirm are gone
+        for enemy_pos in seen_enemies {
+            if !self.enemy_positions.contains(&enemy_pos) {
+                debug!("New enemy spotted at {:?}", enemy_pos);
+                self.enemy_positions.push(enemy_pos);
+            }
+        }
+        // Remove enemies that we can now see are not there anymore
+        // Only remove if the position is in our current visibility range and the tile is not Enemy
+        self.enemy_positions.retain(|pos| {
+            // Check if position is in current visibility range
+            let in_range = pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y;
+
+            if in_range {
+                // We can see this position, so check if enemy is still there
+                if let Some(tile) = self.map.get(pos) {
+                    let still_enemy = matches!(tile, Tile::Enemy);
+                    if !still_enemy {
+                        debug!("Enemy at {:?} is gone (now {:?})", pos, tile);
+                    }
+                    still_enemy
+                } else {
+                    // Position in range but not in map? Keep enemy for now
+                    true
+                }
+            } else {
+                // Out of visibility range - keep the enemy position (enemies don't move when not visible)
                 true
             }
         });
