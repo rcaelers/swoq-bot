@@ -24,8 +24,8 @@ impl GameObserver for DefaultObserver {
         info!("- visibility range: {}", visibility_range);
     }
 
-    fn on_new_level(&mut self, level: i32, previous_level: i32) {
-        info!("Level changed from {} to {}", previous_level, level);
+    fn on_new_level(&mut self, level: i32) {
+        info!("Level changed to {}", level);
     }
 
     fn on_state_update(&mut self, state: &State, world: &WorldState) {

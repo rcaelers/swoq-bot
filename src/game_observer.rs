@@ -15,7 +15,7 @@ pub trait GameObserver {
     );
 
     /// Called when a new level starts
-    fn on_new_level(&mut self, level: i32, previous_level: i32);
+    fn on_new_level(&mut self, level: i32);
 
     /// Called when the game state is updated (every tick)
     fn on_state_update(&mut self, state: &State, world: &WorldState);

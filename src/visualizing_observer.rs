@@ -3,7 +3,7 @@ use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
 use crate::visualizer::{LogColor, LogMessage};
 use crate::world_state::WorldState;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 pub struct VisualizingObserver {
     shared_state: Arc<Mutex<Option<WorldState>>>,
@@ -11,10 +11,16 @@ pub struct VisualizingObserver {
 }
 
 impl VisualizingObserver {
-    pub fn new(shared_state: Arc<Mutex<Option<WorldState>>>, log_tx: mpsc::Sender<LogMessage>) -> Self {
-        Self { shared_state, log_tx }
+    pub fn new(
+        shared_state: Arc<Mutex<Option<WorldState>>>,
+        log_tx: mpsc::Sender<LogMessage>,
+    ) -> Self {
+        Self {
+            shared_state,
+            log_tx,
+        }
     }
-    
+
     fn send_log(&self, text: String, color: LogColor) {
         let _ = self.log_tx.send(LogMessage { text, color });
     }
@@ -53,8 +59,8 @@ impl GameObserver for VisualizingObserver {
         );
     }
 
-    fn on_new_level(&mut self, level: i32, previous_level: i32) {
-        tracing::info!("New level: {} (from {})", level, previous_level);
+    fn on_new_level(&mut self, level: i32) {
+        self.send_log(format!("New Level: {}", level), LogColor::White);
     }
 
     fn on_state_update(&mut self, _state: &State, world: &WorldState) {
@@ -83,7 +89,7 @@ impl GameObserver for VisualizingObserver {
 
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState) {
         self.send_log(format!("Executing Action: {:?}", action), LogColor::Yellow);
-        
+
         tracing::debug!(
             "Action selected: {:?} at ({}, {})",
             action,

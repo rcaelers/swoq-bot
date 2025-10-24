@@ -40,7 +40,7 @@ impl Game {
             let tick_start = Instant::now();
 
             if game.state.level != current_level {
-                self.observer.on_new_level(game.state.level, current_level);
+                self.observer.on_new_level(game.state.level);
                 world.reset_for_new_level();
                 current_level = game.state.level;
             }
