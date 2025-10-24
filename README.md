@@ -20,6 +20,7 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] Investigate hangups
   - [x] incorrect enemies present in HuntEnemyWithSwordStrategy
   - [ ] Hang when trying to go through door
+  - [ ] flee enemy sometimes fails
 
 ## License
 
