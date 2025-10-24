@@ -70,6 +70,8 @@ pub struct WorldState {
     pub sword_positions: Vec<Pos>,
     pub health_positions: Vec<Pos>,
     pub pressure_plate_positions: HashMap<Color, Vec<Pos>>,
+    pub pressure_plate_colors: HashMap<Pos, Color>, // Remember the original color of each plate
+    pub boulders_on_plates: HashMap<Color, Vec<Pos>>, // Track which pressure plates have boulders
     pub boss_position: Option<Pos>,
     pub treasure_position: Option<Pos>,
 
@@ -109,6 +111,8 @@ impl WorldState {
             sword_positions: Vec::new(),
             health_positions: Vec::new(),
             pressure_plate_positions: HashMap::new(),
+            pressure_plate_colors: HashMap::new(),
+            boulders_on_plates: HashMap::new(),
             boss_position: None,
             treasure_position: None,
             unexplored_frontier: HashSet::new(),
@@ -165,6 +169,8 @@ impl WorldState {
         self.sword_positions.clear();
         self.health_positions.clear();
         self.pressure_plate_positions.clear();
+        self.pressure_plate_colors.clear();
+        self.boulders_on_plates.clear();
         self.boss_position = None;
         self.treasure_position = None;
         self.unexplored_frontier.clear();
@@ -307,6 +313,27 @@ impl WorldState {
                     }
                 }
 
+                // Check if this boulder is covering a pressure plate (before updating the map)
+                if tile == Tile::Boulder
+                    && let Some(old_tile) = self.map.get(&pos)
+                {
+                    match old_tile {
+                        Tile::PressurePlateRed => {
+                            debug!("Boulder on Red pressure plate at {:?}", pos);
+                            self.pressure_plate_colors.insert(pos, Color::Red);
+                        }
+                        Tile::PressurePlateGreen => {
+                            debug!("Boulder on Green pressure plate at {:?}", pos);
+                            self.pressure_plate_colors.insert(pos, Color::Green);
+                        }
+                        Tile::PressurePlateBlue => {
+                            debug!("Boulder on Blue pressure plate at {:?}", pos);
+                            self.pressure_plate_colors.insert(pos, Color::Blue);
+                        }
+                        _ => {}
+                    }
+                }
+
                 if should_update {
                     self.map.insert(pos, tile);
                 }
@@ -334,9 +361,7 @@ impl WorldState {
                             seen_doors.entry(Color::Blue).or_default().push(pos);
                         }
                         Tile::Enemy => seen_enemies.push(pos),
-                        Tile::Boulder => {
-                            seen_boulders.push(pos);
-                        }
+                        Tile::Boulder => seen_boulders.push(pos),
                         Tile::Sword => seen_swords.push(pos),
                         Tile::Health => seen_health.push(pos),
                         Tile::PressurePlateRed => {
@@ -344,18 +369,21 @@ impl WorldState {
                                 .entry(Color::Red)
                                 .or_default()
                                 .push(pos);
+                            self.pressure_plate_colors.insert(pos, Color::Red);
                         }
                         Tile::PressurePlateGreen => {
                             seen_pressure_plates
                                 .entry(Color::Green)
                                 .or_default()
                                 .push(pos);
+                            self.pressure_plate_colors.insert(pos, Color::Green);
                         }
                         Tile::PressurePlateBlue => {
                             seen_pressure_plates
                                 .entry(Color::Blue)
                                 .or_default()
                                 .push(pos);
+                            self.pressure_plate_colors.insert(pos, Color::Blue);
                         }
                         Tile::Boss => self.boss_position = Some(pos),
                         Tile::Treasure => self.treasure_position = Some(pos),
@@ -455,7 +483,8 @@ impl WorldState {
             *positions = unique_positions;
             debug!("Processing unique {:?} pressure plates: {} positions", color, positions.len());
 
-            // Remove pressure plates that have been covered (e.g., by boulders)
+            // Remove pressure plates that have been covered by boulders
+            // We keep the plate's color info in pressure_plate_colors for later boulder tracking
             let before_count = positions.len();
             positions.retain(|pos| {
                 if let Some(tile) = self.map.get(pos) {
@@ -463,6 +492,7 @@ impl WorldState {
                         tile,
                         Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
                     );
+
                     if !is_plate {
                         debug!(
                             "Removing {:?} pressure plate at {:?} - now shows as {:?}",
@@ -572,6 +602,27 @@ impl WorldState {
                 true
             }
         });
+
+        // Update boulders_on_plates: check which pressure plates currently have boulders on them
+        // We clear and rebuild this every tick since boulders can be picked up or dropped
+        // We use pressure_plate_colors to remember the original color of plates even when covered
+        self.boulders_on_plates.clear();
+        for (&pos, &tile) in self.map.iter() {
+            if matches!(tile, Tile::Boulder) {
+                // Check if this position was originally a pressure plate
+                if let Some(&color) = self.pressure_plate_colors.get(&pos) {
+                    debug!("Boulder covers {:?} pressure plate at {:?}", color, pos);
+                    self.boulders_on_plates.entry(color).or_default().push(pos);
+                }
+            }
+        }
+
+        // Log the current state for debugging
+        if !self.boulders_on_plates.is_empty() {
+            for (color, positions) in &self.boulders_on_plates {
+                debug!("Boulders on {:?} plates: {} positions", color, positions.len());
+            }
+        }
     }
 
     fn update_frontier(&mut self) {
@@ -643,12 +694,21 @@ impl WorldState {
     }
 
     pub fn has_key(&self, color: Color) -> bool {
-        matches!(
+        // Check if we have the actual key in inventory
+        let has_physical_key = matches!(
             (self.player_inventory, color),
             (Inventory::KeyRed, Color::Red)
                 | (Inventory::KeyGreen, Color::Green)
                 | (Inventory::KeyBlue, Color::Blue)
-        )
+        );
+
+        // Check if there's a boulder on a pressure plate of this color
+        let has_boulder_on_plate = self
+            .boulders_on_plates
+            .get(&color)
+            .is_some_and(|plates| !plates.is_empty());
+
+        has_physical_key || has_boulder_on_plate
     }
 
     pub fn sorted_unexplored(&self) -> Vec<Pos> {
