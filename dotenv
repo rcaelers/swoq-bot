@@ -1,0 +1,9 @@
+# Copy this file to `.env` and adjust the variables as necessary.
+SWOQ_HOST=localhost:5001
+SWOQ_USER_ID=<redacted>
+SWOQ_USER_NAME=rob
+#SWOQ_LEVEL=01 # Or leave empty for quest
+#SWOQ_SEED=42 # Set to define seed for training level
+SWOQ_REPLAYS_FOLDER=./Replays/
+SWOQ_VISUALIZER=true
+#SWOQ_ASSETS_FOLDER=
