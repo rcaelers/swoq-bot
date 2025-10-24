@@ -11,7 +11,7 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] UI improvements
   - [ ] Show pathfinder routes
   - [ ] Game should not start before visualizer is ready
-  - [ ] Show logging pane
+  - [X] Show logging pane
 - [ ] Refactoring vibe coded parts
   - [ ] integrate_surroundings
   - [ ] ...

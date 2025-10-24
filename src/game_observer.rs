@@ -1,3 +1,4 @@
+use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 
@@ -18,6 +19,9 @@ pub trait GameObserver {
 
     /// Called when the game state is updated (every tick)
     fn on_state_update(&mut self, state: &State, world: &WorldState);
+
+    /// Called when a goal is selected
+    fn on_goal_selected(&mut self, goal: &Goal, world: &WorldState);
 
     /// Called when an action is selected
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState);

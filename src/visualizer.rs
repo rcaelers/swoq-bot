@@ -1,22 +1,53 @@
 use crate::swoq_interface::Tile;
 use crate::world_state::{Pos, WorldState};
 use bevy::asset::AssetPlugin;
-use bevy::camera::visibility::ViewVisibility;
 use bevy::prelude::*;
 use std::env;
-use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
 
+#[derive(Debug, Clone)]
+pub struct LogMessage {
+    pub text: String,
+    pub color: LogColor,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LogColor {
+    Cyan,
+    Green,
+    Yellow,
+    White,
+}
+
+impl LogColor {
+    pub fn to_bevy_color(self) -> Color {
+        match self {
+            LogColor::Cyan => Color::srgb(0.4, 0.8, 1.0),
+            LogColor::Green => Color::srgb(0.3, 1.0, 0.3),
+            LogColor::Yellow => Color::srgb(1.0, 0.8, 0.3),
+            LogColor::White => Color::srgb(0.9, 0.9, 0.9),
+        }
+    }
+}
+
 const TILE_SIZE: f32 = 32.0;
-const WINDOW_WIDTH: f32 = 1280.0;
+const MAP_WIDTH: f32 = 1196.0;
+const LOG_PANE_WIDTH: f32 = 484.0;
+const WINDOW_WIDTH: f32 = 1680.0;
 const WINDOW_HEIGHT: f32 = 960.0;
+const MAX_LOG_ENTRIES: usize = 40;
 
 #[derive(Resource)]
 pub struct GameStateResource {
     pub state: Arc<Mutex<Option<WorldState>>>,
     pub last_tick: i32,
     pub camera_initialized: bool,
+    pub log_rx: Arc<Mutex<mpsc::Receiver<LogMessage>>>,
+    pub log_buffer: Vec<LogMessage>,
 }
+
+#[derive(Component)]
+struct LogPane;
 
 #[derive(Resource)]
 pub struct ReadySignal {
@@ -56,7 +87,11 @@ struct MapTile {
 #[derive(Component)]
 struct MapEntity;
 
-pub fn run_visualizer(state: Arc<Mutex<Option<WorldState>>>, ready_tx: mpsc::Sender<()>) {
+pub fn run_visualizer(
+    state: Arc<Mutex<Option<WorldState>>>,
+    ready_tx: mpsc::Sender<()>,
+    log_rx: mpsc::Receiver<LogMessage>,
+) {
     let assets_path = env::var("SWOQ_ASSETS_FOLDER").ok();
     let file_path = if let Some(p) = assets_path {
         p
@@ -88,24 +123,20 @@ pub fn run_visualizer(state: Arc<Mutex<Option<WorldState>>>, ready_tx: mpsc::Sen
             state,
             last_tick: -1,
             camera_initialized: false,
+            log_rx: Arc::new(Mutex::new(log_rx)),
+            log_buffer: Vec::new(),
         })
         .insert_resource(ReadySignal {
             sender: Some(ready_tx),
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, (check_assets_loaded, update_map))
+        .add_systems(Update, (check_assets_loaded, update_map, update_log_pane))
         .run();
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        Camera2d,
-        Transform::default(),
-        GlobalTransform::default(),
-        Visibility::default(),
-        InheritedVisibility::default(),
-        ViewVisibility::default(),
-    ));
+    // Spawn single camera
+    commands.spawn(Camera2d);
 
     // Load all tile images
     let tile_assets = TileAssets {
@@ -220,7 +251,7 @@ fn update_map(
         world_state_clone = world_state.clone();
     } // Lock is dropped here
 
-    tracing::info!("Rendering tick {} (level {})", current_tick, world_state_clone.level);
+    tracing::debug!("Rendering tick {} (level {})", current_tick, world_state_clone.level);
     game_state.last_tick = current_tick;
 
     // Clear existing tiles
@@ -244,6 +275,19 @@ fn render_world_state(
     camera_query: &mut Query<&mut Transform, With<Camera2d>>,
     camera_initialized: &mut bool,
 ) {
+    // Add log pane background
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(MAP_WIDTH),
+            top: Val::Px(0.0),
+            width: Val::Px(LOG_PANE_WIDTH),
+            height: Val::Px(WINDOW_HEIGHT),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.05, 0.05, 0.08)),
+        MapEntity,
+    ));
     tracing::debug!(
         "Rendering {} tiles for level {} tick {}",
         world_state.map.len(),
@@ -253,33 +297,34 @@ fn render_world_state(
 
     // Set camera once based on full maze dimensions (not discovered tiles)
     if !*camera_initialized && let Ok(mut camera_transform) = camera_query.single_mut() {
-        // Center of the full maze
-        let map_center_x = (world_state.map_width as f32 / 2.0) * TILE_SIZE;
-        let map_center_y = -((world_state.map_height as f32 / 2.0) * TILE_SIZE);
-
-        // Calculate scale to fit entire maze in window
+        // Calculate scale to fit entire maze in the MAP_WIDTH area
         let map_width = world_state.map_width as f32 * TILE_SIZE;
         let map_height = world_state.map_height as f32 * TILE_SIZE;
 
-        let scale_x = WINDOW_WIDTH / map_width;
+        let scale_x = MAP_WIDTH / map_width;
         let scale_y = WINDOW_HEIGHT / map_height;
-        let scale = scale_x.min(scale_y) * 0.9; // 0.9 for padding
+        let scale = scale_x.min(scale_y) * 0.9; // 0.9 for some padding
 
-        camera_transform.translation.x = map_center_x;
-        camera_transform.translation.y = map_center_y;
+        camera_transform.translation.x = 0.0;
+        camera_transform.translation.y = 0.0;
         camera_transform.scale = Vec3::splat(1.0 / scale);
 
         *camera_initialized = true;
-        tracing::info!(
-            "Camera initialized: center=({}, {}), scale={}",
-            map_center_x,
-            map_center_y,
-            1.0 / scale
-        );
+        tracing::info!("Camera initialized: center=(0, 0), scale={}", 1.0 / scale);
     }
 
-    let center_x = 0.0;
-    let center_y = 0.0;
+    // Get current camera scale for positioning calculations
+    let camera_scale = if let Ok(camera_transform) = camera_query.single() {
+        camera_transform.scale.x
+    } else {
+        1.0
+    };
+
+    // Position map at top-left with 20px margin
+    // Camera scaling affects world coordinates, so we multiply by camera scale
+    // to convert screen pixels to world coordinates
+    let center_x = (-(WINDOW_WIDTH / 2.0) + 20.0 + (TILE_SIZE / 2.0)) * camera_scale;
+    let center_y = ((WINDOW_HEIGHT / 2.0) - 20.0 - (TILE_SIZE / 2.0)) * camera_scale;
 
     // Render all known tiles
     for (pos, tile) in &world_state.map {
@@ -295,10 +340,6 @@ fn render_world_state(
                 ..default()
             },
             Transform::from_xyz(x, y, 0.0),
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(),
-            ViewVisibility::default(),
             MapTile { pos: *pos },
             MapEntity,
         ));
@@ -317,10 +358,6 @@ fn render_world_state(
                 ..default()
             },
             Transform::from_xyz(x, y, 0.5), // z=0.5 to be above tiles but below player
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(),
-            ViewVisibility::default(),
             MapEntity,
         ));
     }
@@ -336,10 +373,6 @@ fn render_world_state(
             ..default()
         },
         Transform::from_xyz(player_x, player_y, 1.0),
-        GlobalTransform::default(),
-        Visibility::default(),
-        InheritedVisibility::default(),
-        ViewVisibility::default(),
         MapEntity,
     ));
 
@@ -368,13 +401,85 @@ fn render_world_state(
             left: Val::Px(10.0),
             ..default()
         },
-        Transform::default(),
-        GlobalTransform::default(),
-        Visibility::default(),
-        InheritedVisibility::default(),
-        ViewVisibility::default(),
         MapEntity,
     ));
+}
+
+fn update_log_pane(
+    mut commands: Commands,
+    mut game_state: ResMut<GameStateResource>,
+    log_pane_query: Query<Entity, With<LogPane>>,
+) {
+    // Clear existing log pane
+    for entity in log_pane_query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // Read all available log messages from channel and add to buffer
+    let mut new_messages = Vec::new();
+    if let Ok(rx) = game_state.log_rx.lock() {
+        while let Ok(msg) = rx.try_recv() {
+            new_messages.push(msg);
+        }
+    } // Lock is released here
+
+    // Add new messages to buffer
+    game_state.log_buffer.extend(new_messages);
+
+    // Trim buffer if it gets too large
+    if game_state.log_buffer.len() > MAX_LOG_ENTRIES * 2 {
+        game_state.log_buffer.drain(0..MAX_LOG_ENTRIES);
+    }
+
+    // Get last MAX_LOG_ENTRIES from buffer
+    let start_idx = if game_state.log_buffer.len() > MAX_LOG_ENTRIES {
+        game_state.log_buffer.len() - MAX_LOG_ENTRIES
+    } else {
+        0
+    };
+    let log_messages: Vec<LogMessage> = game_state.log_buffer[start_idx..].to_vec();
+
+    if log_messages.is_empty() {
+        return;
+    }
+
+    // Create log pane container
+    let container = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(MAP_WIDTH + 10.0),
+                top: Val::Px(50.0),
+                width: Val::Px(LOG_PANE_WIDTH - 20.0),
+                height: Val::Px(WINDOW_HEIGHT - 60.0),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            LogPane,
+        ))
+        .id();
+
+    // Add log entries as children
+    for log_message in log_messages.iter().rev() {
+        let text_entity = commands
+            .spawn((
+                Text::new(log_message.text.clone()),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(log_message.color.to_bevy_color()),
+                Node {
+                    margin: UiRect::bottom(Val::Px(2.0)),
+                    max_width: Val::Px(LOG_PANE_WIDTH - 30.0),
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+            ))
+            .id();
+
+        commands.entity(container).add_child(text_entity);
+    }
 }
 
 fn get_tile_texture(tile: &Tile, tile_assets: &TileAssets) -> Handle<Image> {

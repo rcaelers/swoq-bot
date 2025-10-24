@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let shared_state: Arc<Mutex<Option<WorldState>>> = Arc::new(Mutex::new(None));
         let game_state = Arc::clone(&shared_state);
 
+        let (log_tx, log_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
         std::thread::spawn(move || {
@@ -75,12 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let connection = GameConnection::new(user_id, user_name, host, replays_folder)
                     .await
                     .unwrap();
-                let mut game = Game::new(connection, VisualizingObserver::new(game_state));
+                let mut game = Game::new(connection, VisualizingObserver::new(game_state, log_tx));
                 let _ = game.run(level, seed).await;
             });
         });
 
-        run_visualizer(shared_state, ready_tx);
+        run_visualizer(shared_state, ready_tx, log_rx);
     } else {
         let connection = GameConnection::new(user_id, user_name, host, replays_folder).await?;
         let mut game = Game::new(connection, DefaultObserver);

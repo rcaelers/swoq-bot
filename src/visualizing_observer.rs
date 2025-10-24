@@ -1,15 +1,22 @@
 use crate::game_observer::GameObserver;
+use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
+use crate::visualizer::{LogColor, LogMessage};
 use crate::world_state::WorldState;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
 pub struct VisualizingObserver {
     shared_state: Arc<Mutex<Option<WorldState>>>,
+    log_tx: mpsc::Sender<LogMessage>,
 }
 
 impl VisualizingObserver {
-    pub fn new(shared_state: Arc<Mutex<Option<WorldState>>>) -> Self {
-        Self { shared_state }
+    pub fn new(shared_state: Arc<Mutex<Option<WorldState>>>, log_tx: mpsc::Sender<LogMessage>) -> Self {
+        Self { shared_state, log_tx }
+    }
+    
+    fn send_log(&self, text: String, color: LogColor) {
+        let _ = self.log_tx.send(LogMessage { text, color });
     }
 
     fn update_shared_state(&self, world: &WorldState) {
@@ -51,7 +58,7 @@ impl GameObserver for VisualizingObserver {
     }
 
     fn on_state_update(&mut self, _state: &State, world: &WorldState) {
-        // Update the shared state for the visualizer
+        self.send_log(format!("TICK {}", world.tick), LogColor::Cyan);
         self.update_shared_state(world);
 
         tracing::debug!(
@@ -70,7 +77,13 @@ impl GameObserver for VisualizingObserver {
         println!("{}", "─".repeat(60));
     }
 
+    fn on_goal_selected(&mut self, goal: &Goal, _world: &WorldState) {
+        self.send_log(format!("Selected Goal: {:?}", goal), LogColor::Green);
+    }
+
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState) {
+        self.send_log(format!("Executing Action: {:?}", action), LogColor::Yellow);
+        
         tracing::debug!(
             "Action selected: {:?} at ({}, {})",
             action,

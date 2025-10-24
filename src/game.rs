@@ -55,7 +55,8 @@ impl Game {
             world.update(&game.state);
             self.observer.on_state_update(&game.state, &world);
 
-            let action = Planner::decide_action(&mut world);
+            let (goal, action) = Planner::decide_action(&mut world);
+            self.observer.on_goal_selected(&goal, &world);
             self.observer.on_action_selected(action, &world);
 
             game.act(action).await?;

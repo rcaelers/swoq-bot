@@ -11,7 +11,7 @@ pub trait SelectGoal {
 pub struct Planner;
 
 impl Planner {
-    pub fn decide_action(world: &mut WorldState) -> DirectedAction {
+    pub fn decide_action(world: &mut WorldState) -> (Goal, DirectedAction) {
         // Check if we've reached the current destination
         if let Some(dest) = world.current_destination
             && world.player_pos == dest
@@ -46,7 +46,8 @@ impl Planner {
         println!("│ ⚡ EXECUTING ACTION - Planning action for goal              ");
         println!("└────────────────────────────────────────────────────────────┘");
 
-        goal.execute(world).unwrap_or(DirectedAction::None)
+        let action = goal.execute(world).unwrap_or(DirectedAction::None);
+        (goal, action)
     }
 
     pub fn select_goal(world: &WorldState) -> Goal {

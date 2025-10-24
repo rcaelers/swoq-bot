@@ -1,4 +1,5 @@
 use crate::game_observer::GameObserver;
+use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 use std::io::{self, Write};
@@ -41,6 +42,10 @@ impl GameObserver for DefaultObserver {
             let _ = write!(io::stdout(), " [Has Sword]");
         }
         let _ = writeln!(io::stdout(), " | Health: {}", world.player_health);
+    }
+
+    fn on_goal_selected(&mut self, goal: &Goal, _world: &WorldState) {
+        info!("Selected Goal: {:?}", goal);
     }
 
     fn on_action_selected(&mut self, action: DirectedAction, _world: &WorldState) {
