@@ -65,11 +65,13 @@ impl ExecuteGoal for ExploreGoal {
         if let Some(dest) = world.current_destination {
             if let Some(path) = AStar::find_path(world, world.player_pos, dest, false) {
                 debug!("Continuing to existing destination {:?}, path length={}", dest, path.len());
+                world.current_path = Some(path.clone());
                 return path_to_action(world.player_pos, &path);
             } else {
                 // Destination became unreachable
                 debug!("Destination {:?} is now unreachable, finding new one", dest);
                 world.current_destination = None;
+                world.current_path = None;
             }
         }
 
@@ -97,6 +99,7 @@ impl ExecuteGoal for ExploreGoal {
                     attempts
                 );
                 world.current_destination = Some(*target);
+                world.current_path = Some(path.clone());
                 return path_to_action(world.player_pos, &path);
             }
         }
@@ -106,6 +109,7 @@ impl ExecuteGoal for ExploreGoal {
             attempts
         );
         world.current_destination = None;
+        world.current_path = None;
 
         None
     }
@@ -116,6 +120,7 @@ impl ExecuteGoal for GetKeyGoal {
         let key_pos = world.key_positions.get(&self.0)?;
         world.current_destination = Some(*key_pos);
         let path = AStar::find_path(world, world.player_pos, *key_pos, false)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }
@@ -139,6 +144,7 @@ impl ExecuteGoal for OpenDoorGoal {
         // Navigate to door (can open doors since we have keys)
         world.current_destination = Some(door_pos);
         let path = AStar::find_path(world, world.player_pos, door_pos, true)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }
@@ -172,6 +178,7 @@ impl ExecuteGoal for StepOnPressurePlateGoal {
             debug!("Navigating to pressure plate at {:?}", plate_pos);
             world.current_destination = Some(plate_pos);
             let path = AStar::find_path(world, world.player_pos, plate_pos, false)?;
+            world.current_path = Some(path.clone());
             path_to_action(world.player_pos, &path)
         }
     }
@@ -182,6 +189,7 @@ impl ExecuteGoal for PickupSwordGoal {
         let sword_pos = *world.sword_positions.first()?;
         world.current_destination = Some(sword_pos);
         let path = AStar::find_path(world, world.player_pos, sword_pos, false)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }
@@ -191,6 +199,7 @@ impl ExecuteGoal for PickupHealthGoal {
         let health_pos = world.closest_health()?;
         world.current_destination = Some(health_pos);
         let path = AStar::find_path(world, world.player_pos, health_pos, false)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }
@@ -200,6 +209,7 @@ impl ExecuteGoal for ReachExitGoal {
         let exit_pos = world.exit_pos?;
         world.current_destination = Some(exit_pos);
         let path = AStar::find_path(world, world.player_pos, exit_pos, true)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }
@@ -218,6 +228,7 @@ impl ExecuteGoal for KillEnemyGoal {
             if world.is_walkable(&adjacent, false, true)
                 && let Some(path) = AStar::find_path(world, world.player_pos, adjacent, false)
             {
+                world.current_path = Some(path.clone());
                 return path_to_action(world.player_pos, &path);
             }
         }
@@ -248,6 +259,7 @@ impl ExecuteGoal for FetchBoulderGoal {
             {
                 debug!("Moving to adjacent position {:?} to reach boulder", adjacent);
                 world.current_destination = Some(adjacent);
+                world.current_path = Some(path.clone());
                 return path_to_action(world.player_pos, &path);
             }
         }
@@ -269,6 +281,7 @@ impl ExecuteGoal for DropBoulderOnPlateGoal {
         // Navigate to the pressure plate
         world.current_destination = Some(plate_pos);
         let path = AStar::find_path(world, world.player_pos, plate_pos, true)?;
+        world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }
 }

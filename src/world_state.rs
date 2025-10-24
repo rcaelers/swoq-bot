@@ -78,6 +78,7 @@ pub struct WorldState {
     // Planning state to avoid oscillation
     pub previous_goal: Option<crate::goal::Goal>,
     pub current_destination: Option<Pos>,
+    pub current_path: Option<Vec<Pos>>,
 
     // Track positions where we've dropped boulders (these are explored)
     pub dropped_boulder_positions: HashSet<Pos>,
@@ -113,6 +114,7 @@ impl WorldState {
             unexplored_frontier: HashSet::new(),
             previous_goal: None,
             current_destination: None,
+            current_path: None,
             dropped_boulder_positions: HashSet::new(),
         }
     }
@@ -178,6 +180,7 @@ impl WorldState {
         // Clear planning state
         self.previous_goal = None;
         self.current_destination = None;
+        self.current_path = None;
         self.dropped_boulder_positions.clear();
     }
 

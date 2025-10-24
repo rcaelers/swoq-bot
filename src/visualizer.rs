@@ -362,6 +362,42 @@ fn render_world_state(
         ));
     }
 
+    // Render current path (if available)
+    if let Some(ref path) = world_state.current_path {
+        for pos in path.iter() {
+            let x = center_x + (pos.x as f32 * TILE_SIZE);
+            let y = center_y - (pos.y as f32 * TILE_SIZE);
+
+            // Draw path as a semi-transparent yellow square
+            commands.spawn((
+                Sprite {
+                    color: Color::srgba(1.0, 1.0, 0.0, 0.4), // Yellow, 40% opacity
+                    custom_size: Some(Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8)),
+                    ..default()
+                },
+                Transform::from_xyz(x, y, 0.6), // z=0.6 to be above frontier but below player
+                MapEntity,
+            ));
+        }
+    }
+
+    // Render current destination (if available)
+    if let Some(dest) = world_state.current_destination {
+        let x = center_x + (dest.x as f32 * TILE_SIZE);
+        let y = center_y - (dest.y as f32 * TILE_SIZE);
+
+        // Draw destination as a bright red circle/square
+        commands.spawn((
+            Sprite {
+                color: Color::srgba(1.0, 0.0, 0.0, 0.7), // Bright red, 70% opacity
+                custom_size: Some(Vec2::new(TILE_SIZE * 0.6, TILE_SIZE * 0.6)),
+                ..default()
+            },
+            Transform::from_xyz(x, y, 0.7), // z=0.7 to be above path but below player
+            MapEntity,
+        ));
+    }
+
     // Render the player
     let player_x = center_x + (world_state.player_pos.x as f32 * TILE_SIZE);
     let player_y = center_y - (world_state.player_pos.y as f32 * TILE_SIZE);

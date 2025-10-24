@@ -4,14 +4,14 @@ This is a bot for the [Sioux Weekend of Quest](https://github.com/drZymo/swoq) b
 
 Rust starter code taken from <https://github.com/drZymo/swoq-bots>.  
 Images taken from <https://github.com/drZymo/swoq>.  
-Copyright (c) 2025 Ralph Schiedon.  
+Copyright (c) 2025 Ralph Schiedon.
 
 ## TODO
 
 - [ ] UI improvements
-  - [ ] Show pathfinder routes
+  - [x] Show pathfinder routes
   - [ ] Game should not start before visualizer is ready
-  - [X] Show logging pane
+  - [x] Show logging pane
 - [ ] Refactoring vibe coded parts
   - [ ] integrate_surroundings
   - [ ] ...
