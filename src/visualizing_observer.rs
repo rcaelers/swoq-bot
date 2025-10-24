@@ -84,6 +84,7 @@ impl GameObserver for VisualizingObserver {
     }
 
     fn on_goal_selected(&mut self, goal: &Goal, _world: &WorldState) {
+        tracing::debug!("Selected Goal: {:?}", goal);
         self.send_log(format!("Selected Goal: {:?}", goal), LogColor::Green);
     }
 
