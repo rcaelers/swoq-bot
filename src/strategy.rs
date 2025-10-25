@@ -106,7 +106,7 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
         }
 
         let enemy_pos = world.closest_enemy(world.player())?;
-        let dist = world.player().position.distance(&enemy_pos);
+        let dist = world.path_distance_to_enemy(world.player().position, enemy_pos);
 
         // If we have a sword and enemy is close (adjacent or 2 tiles away), attack it
         if world.player().has_sword && dist <= 2 {
@@ -129,12 +129,10 @@ impl SelectGoal for PickupHealthStrategy {
             return None;
         }
 
-        // Check if any enemy is close (within 5 tiles)
-        let enemy_nearby = world
-            .enemies
-            .get_positions()
-            .iter()
-            .any(|&enemy_pos| world.player().position.distance(&enemy_pos) <= 5);
+        // Check if any enemy is close (within 3 tiles actual path distance)
+        let enemy_nearby = world.enemies.get_positions().iter().any(|&enemy_pos| {
+            world.path_distance_to_enemy(world.player().position, enemy_pos) <= 3
+        });
 
         if !enemy_nearby {
             debug!("(health found, no enemies nearby)");
@@ -165,22 +163,25 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
 
         debug!("Carrying a boulder, checking for pressure plates");
 
-        // Check if there's a pressure plate we can reach
+        // Find the closest reachable pressure plate across all colors
+        let mut closest_plate: Option<(Color, Position, i32)> = None; // (color, position, distance)
+
         for color in [Color::Red, Color::Green, Color::Blue] {
-            if let Some(plates) = world.pressure_plates.get_positions(color)
-                && let Some(&plate_pos) = plates.first()
-            {
-                // Check if we can reach the plate
-                if world.player().position.is_adjacent(&plate_pos)
-                    || world
-                        .map
-                        .find_path(world.player().position, plate_pos)
-                        .is_some()
-                {
-                    debug!("Found reachable {:?} pressure plate at {:?}", color, plate_pos);
-                    return Some(Goal::DropBoulderOnPlate(color, plate_pos));
+            if let Some(plates) = world.pressure_plates.get_positions(color) {
+                for &plate_pos in plates {
+                    // Check if we can reach the plate
+                    if let Some(path_len) = world.path_distance(world.player().position, plate_pos)
+                        && (closest_plate.is_none() || path_len < closest_plate.unwrap().2)
+                    {
+                        closest_plate = Some((color, plate_pos, path_len));
+                    }
                 }
             }
+        }
+
+        if let Some((color, plate_pos, _)) = closest_plate {
+            debug!("Found closest reachable {:?} pressure plate at {:?}", color, plate_pos);
+            return Some(Goal::DropBoulderOnPlate(color, plate_pos));
         }
 
         // No reachable pressure plate, just drop it

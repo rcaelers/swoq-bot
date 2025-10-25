@@ -435,20 +435,20 @@ impl WorldState {
 
     pub fn has_key(&self, player: &PlayerState, color: Color) -> bool {
         // Check if we have the actual key in inventory
-        let has_physical_key = matches!(
+        matches!(
             (player.inventory, color),
             (Inventory::KeyRed, Color::Red)
                 | (Inventory::KeyGreen, Color::Green)
                 | (Inventory::KeyBlue, Color::Blue)
-        );
+        )
+    }
 
+    pub fn has_door_been_opened(&self, color: Color) -> bool {
         // Check if there's a boulder on a pressure plate of this color
         let boulders_on_plates = self.get_boulders_on_plates();
-        let has_boulder_on_plate = boulders_on_plates
+        boulders_on_plates
             .get(&color)
-            .is_some_and(|plates| !plates.is_empty());
-
-        has_physical_key || has_boulder_on_plate
+            .is_some_and(|plates| !plates.is_empty())
     }
 
     pub fn closest_enemy(&self, player: &PlayerState) -> Option<Position> {
@@ -463,7 +463,7 @@ impl WorldState {
     pub fn doors_without_keys(&self, player: &PlayerState) -> Vec<Color> {
         self.doors
             .colors()
-            .filter(|color| !self.has_key(player, **color))
+            .filter(|color| !self.has_key(player, **color) && !self.has_door_been_opened(**color))
             .copied()
             .collect()
     }
@@ -480,6 +480,25 @@ impl WorldState {
     pub fn closest_key(&self, player: &PlayerState, color: Color) -> Option<Position> {
         self.keys.closest_to(color, player.position)
     }
+
+    /// Get the actual path distance between two positions, returns None if unreachable
+    pub fn path_distance(&self, from: Position, to: Position) -> Option<i32> {
+        self.map.find_path(from, to).map(|path| path.len() as i32)
+    }
+
+    /// Get the path distance to an enemy position.
+    /// Only calculates actual path if Manhattan distance < 5, otherwise returns Manhattan distance.
+    pub fn path_distance_to_enemy(&self, from: Position, enemy_pos: Position) -> i32 {
+        let manhattan_dist = from.distance(&enemy_pos);
+
+        // Only use expensive pathfinding for nearby enemies
+        if manhattan_dist < 6 {
+            self.path_distance(from, enemy_pos).unwrap_or(i32::MAX)
+        } else {
+            manhattan_dist
+        }
+    }
+
 
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn draw_ascii_map(&self) -> String {
