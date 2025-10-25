@@ -186,6 +186,7 @@ impl WorldState {
         self.current_path = None;
     }
 
+    #[tracing::instrument(level = "trace", skip(self, surroundings), fields(center_x = center.x, center_y = center.y, surroundings_len = surroundings.len()))]
     fn integrate_surroundings(&mut self, surroundings: &[i32], center: Pos) {
         let size = (self.visibility_range * 2 + 1) as usize;
 
@@ -591,9 +592,10 @@ impl WorldState {
         self.unexplored_frontier =
             crate::pathfinding::AStar::compute_reachable_positions(self, self.player_pos);
 
-        debug!("Frontier size: {}", self.unexplored_frontier.len());
+        tracing::trace!(frontier_size = self.unexplored_frontier.len(), "Frontier updated");
     }
 
+    #[tracing::instrument(level = "trace", skip(self), fields(pos_x = pos.x, pos_y = pos.y))]
     fn check_dropped_boulder(&mut self, pos: Pos) {
         // Check for dropped boulder BEFORE updating the map
         // If we see a boulder in a location that was empty and adjacent to us, we dropped it
@@ -625,6 +627,7 @@ impl WorldState {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, seen_boulders), fields(seen_count = seen_boulders.len()))]
     fn update_boulder_positions(&mut self, seen_boulders: Vec<Pos>) {
         // Add newly seen boulders
         for boulder_pos in seen_boulders {

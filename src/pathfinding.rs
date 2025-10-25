@@ -23,6 +23,7 @@ impl PartialOrd for Node {
 pub struct AStar;
 
 impl AStar {
+    #[tracing::instrument(level = "trace", skip(world), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
     pub fn find_path(
         world: &WorldState,
         start: Pos,
@@ -46,6 +47,7 @@ impl AStar {
 
         while let Some(Node { pos: current, .. }) = open_set.pop() {
             if current == goal {
+                tracing::trace!(expansions, "Path found");
                 return Some(reconstruct_path(&came_from, current));
             }
 
@@ -57,6 +59,7 @@ impl AStar {
             expansions += 1;
             if expansions > MAX_EXPANSIONS {
                 // Too many expansions, target likely unreachable
+                tracing::warn!(expansions, "Max expansions reached, target unreachable");
                 return None;
             }
 
@@ -92,6 +95,7 @@ impl AStar {
             }
         }
 
+        tracing::trace!(expansions, "No path found");
         None
     }
 
@@ -99,6 +103,7 @@ impl AStar {
     /// (treating Unknown/None as walkable). Returns a HashSet of reachable frontier positions
     /// (positions that are Unknown or None and adjacent to explored/known tiles).
     /// This combines reachability checking with frontier detection in a single pass.
+    #[tracing::instrument(level = "trace", skip(world), fields(start_x = start.x, start_y = start.y))]
     pub fn compute_reachable_positions(world: &WorldState, start: Pos) -> HashSet<Pos> {
         let mut reachable = HashSet::new();
         let mut frontier = HashSet::new();
@@ -169,6 +174,12 @@ impl AStar {
             }
         }
 
+        tracing::trace!(
+            iterations,
+            frontier_size = frontier.len(),
+            reachable_size = reachable.len(),
+            "Frontier computation complete"
+        );
         frontier
     }
 }
