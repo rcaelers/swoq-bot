@@ -140,6 +140,7 @@ impl WorldState {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, state))]
     pub fn update(&mut self, state: &State) {
         self.level = state.level;
         self.tick = state.tick;
@@ -175,6 +176,7 @@ impl WorldState {
         self.update_frontier();
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn reset_for_new_level(&mut self) {
         // Clear all map data for the new level
         self.map.clear();
@@ -375,6 +377,7 @@ impl WorldState {
             .update(seen_enemies, &self.map, |tile| matches!(tile, Tile::Enemy), &bounds);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn update_frontier(&mut self) {
         // Compute reachable frontier positions in a single pass
         // This replaces the old two-step process of:
@@ -515,6 +518,7 @@ impl WorldState {
         has_physical_key || has_boulder_on_plate
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn sorted_unexplored(&self) -> Vec<Pos> {
         let mut frontier: Vec<Pos> = self.unexplored_frontier.iter().copied().collect();
         frontier.sort_by_key(|pos| self.player_pos.distance(pos));
@@ -529,6 +533,7 @@ impl WorldState {
         self.health.closest_to(self.player_pos)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn doors_without_keys(&self) -> Vec<Color> {
         self.doors
             .colors()
@@ -549,6 +554,7 @@ impl WorldState {
         self.keys.closest_to(color, self.player_pos)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn draw_ascii_map(&self) -> String {
         let mut output = String::new();
 

@@ -17,6 +17,7 @@ impl ItemTracker {
 
     /// Update positions: merge newly seen items, deduplicate, and remove items that are gone
     /// Only validates items within the visibility bounds
+    #[tracing::instrument(level = "trace", skip(self, map, validator, visibility_bounds), fields(seen_count = seen_items.len()))]
     pub fn update<F>(
         &mut self,
         seen_items: Vec<Pos>,
@@ -97,6 +98,7 @@ impl ColoredItemTracker {
 
     /// Update positions for a specific color: merge newly seen items, deduplicate, and remove items that are gone
     /// Only validates items within the visibility bounds
+    #[tracing::instrument(level = "trace", skip(self, map, validator, visibility_bounds))]
     pub fn update<F>(
         &mut self,
         seen_items: HashMap<Color, Vec<Pos>>,

@@ -11,6 +11,7 @@ pub trait SelectGoal {
 pub struct Planner;
 
 impl Planner {
+    #[tracing::instrument(level = "debug", skip(world))]
     pub fn decide_action(world: &mut WorldState) -> (Goal, DirectedAction) {
         // Check if we've reached the current destination
         if let Some(dest) = world.current_destination
@@ -50,6 +51,7 @@ impl Planner {
         (goal, action)
     }
 
+    #[tracing::instrument(level = "debug", skip(world))]
     pub fn select_goal(world: &WorldState) -> Goal {
         let strategies: &[&dyn SelectGoal] = &[
             &AttackOrFleeEnemyStrategy,

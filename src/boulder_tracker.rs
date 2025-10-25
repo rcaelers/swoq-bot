@@ -68,6 +68,7 @@ impl BoulderTracker {
     }
 
     /// Update boulder positions based on newly seen boulders and current map state
+    #[tracing::instrument(level = "trace", skip(self, map, is_adjacent), fields(seen_count = seen_boulders.len()))]
     pub fn update<F>(&mut self, seen_boulders: Vec<Pos>, map: &HashMap<Pos, Tile>, is_adjacent: F)
     where
         F: Fn(&Pos) -> bool,

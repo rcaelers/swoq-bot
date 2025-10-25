@@ -37,6 +37,8 @@ fn init_logging() {
         .with_env_filter(filter)
         .with_target(false)
         .with_ansi(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");

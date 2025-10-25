@@ -20,6 +20,7 @@ pub enum Goal {
 }
 
 impl Goal {
+    #[tracing::instrument(level = "debug", skip(world))]
     pub fn execute(&self, world: &mut WorldState) -> Option<DirectedAction> {
         match self {
             Goal::Explore => ExploreGoal.execute(world),
