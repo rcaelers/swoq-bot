@@ -175,7 +175,6 @@ impl AStar {
         }
 
         tracing::trace!(
-            iterations,
             frontier_size = frontier.len(),
             reachable_size = reachable.len(),
             "Frontier computation complete"
