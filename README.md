@@ -24,7 +24,7 @@ Copyright (c) 2025 Ralph Schiedon.
   - [ ] Don't attack enemy if not needed
   - [ ] Enemy in range check should use pathfinder
   - [ ] Unexplored frontier: add unknown->known transitions
-  - [ ] If no further goals, pick random explored location in search for enemies
+  - [x] If no further goals, pick random explored location in search for enemies
 
 ## License
 

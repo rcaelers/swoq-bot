@@ -4,7 +4,7 @@ use crate::goal::Goal;
 use crate::pathfinding::AStar;
 use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
-    use crate::world_state::WorldState;
+use crate::world_state::WorldState;
 
 pub trait SelectGoal {
     fn try_select(&self, world: &WorldState) -> Option<Goal>;
@@ -41,13 +41,10 @@ impl Planner {
         let player_pos = world.player().position;
         let player_tile = world.map.get(&player_pos);
         let current_dest = world.player().current_destination;
-        
+
         println!(
             "  Goal: {:?}, frontier size: {}, player tile: {:?}, dest: {:?}",
-            goal,
-            frontier_size,
-            player_tile,
-            current_dest
+            goal, frontier_size, player_tile, current_dest
         );
 
         println!("\n┌────────────────────────────────────────────────────────────┐");
@@ -73,6 +70,7 @@ impl Planner {
             &MoveUnexploredBoulderStrategy,
             &FallbackPressurePlateStrategy,
             &HuntEnemyWithSwordStrategy,
+            &RandomExploreStrategy,
         ];
 
         for strategy in strategies {
@@ -100,6 +98,7 @@ pub struct FetchBoulderForPlateStrategy;
 pub struct MoveUnexploredBoulderStrategy;
 pub struct FallbackPressurePlateStrategy;
 pub struct HuntEnemyWithSwordStrategy;
+pub struct RandomExploreStrategy;
 
 impl SelectGoal for AttackOrFleeEnemyStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
@@ -502,5 +501,54 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
         }
 
         None
+    }
+}
+
+impl SelectGoal for RandomExploreStrategy {
+    fn try_select(&self, world: &WorldState) -> Option<Goal> {
+        // Only use random exploration when:
+        // 1. The frontier is empty (nothing new to explore)
+        // 2. We're not doing anything else
+        if !world.player().unexplored_frontier.is_empty() {
+            return None;
+        }
+
+        debug!("RandomExploreStrategy: Frontier empty, selecting random reachable position");
+
+        // Collect all reachable empty positions that we've seen
+        let mut reachable_positions = Vec::new();
+        for (pos, tile) in world.map.iter() {
+            // Only consider empty tiles that are far from player
+            if matches!(tile, crate::swoq_interface::Tile::Empty)
+                && world.player().position.distance(pos) > 5
+            {
+                // Check if reachable
+                if AStar::find_path(&world.map, world.player().position, *pos, |p, g| {
+                    world.is_walkable(world.player(), p, g, true)
+                })
+                .is_some()
+                {
+                    reachable_positions.push(*pos);
+                }
+            }
+        }
+
+        if reachable_positions.is_empty() {
+            debug!("RandomExploreStrategy: No reachable positions found");
+            return None;
+        }
+
+        // Pick a random position (using tick as seed for deterministic behavior)
+        let index = (world.tick as usize) % reachable_positions.len();
+        let target = reachable_positions[index];
+
+        debug!(
+            "RandomExploreStrategy: Selected position {:?} (option {} of {})",
+            target,
+            index,
+            reachable_positions.len()
+        );
+
+        Some(Goal::RandomExplore(target))
     }
 }
