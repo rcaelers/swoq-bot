@@ -412,6 +412,15 @@ fn render_world_state(
         ));
     }
 
+    // Render blue borders around unmoved boulders
+    for boulder_pos in world_state.boulder_info.get_original_boulders() {
+        let x = center_x + (boulder_pos.x as f32 * TILE_SIZE);
+        let y = center_y - (boulder_pos.y as f32 * TILE_SIZE);
+
+        // Draw blue border around unmoved boulder
+        spawn_tile_border(commands, x, y, Color::srgb(0.0, 0.8, 1.0), 3.0, 0.55);
+    }
+
     // Render current path (if available)
     if let Some(ref path) = world_state.current_path {
         for pos in path.iter() {
