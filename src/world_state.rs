@@ -72,7 +72,6 @@ pub struct WorldState {
     pub health_positions: Vec<Pos>,
     pub pressure_plate_positions: HashMap<Color, Vec<Pos>>,
     pub pressure_plate_colors: HashMap<Pos, Color>, // Remember the original color of each plate
-    pub boulders_on_plates: HashMap<Color, Vec<Pos>>, // Track which pressure plates have boulders
     pub boss_position: Option<Pos>,
     pub treasure_position: Option<Pos>,
 
@@ -110,7 +109,6 @@ impl WorldState {
             health_positions: Vec::new(),
             pressure_plate_positions: HashMap::new(),
             pressure_plate_colors: HashMap::new(),
-            boulders_on_plates: HashMap::new(),
             boss_position: None,
             treasure_position: None,
             unexplored_frontier: HashSet::new(),
@@ -167,7 +165,6 @@ impl WorldState {
         self.health_positions.clear();
         self.pressure_plate_positions.clear();
         self.pressure_plate_colors.clear();
-        self.boulders_on_plates.clear();
         self.boss_position = None;
         self.treasure_position = None;
         self.unexplored_frontier.clear();
@@ -561,27 +558,6 @@ impl WorldState {
                 true
             }
         });
-
-        // Update boulders_on_plates: check which pressure plates currently have boulders on them
-        // We clear and rebuild this every tick since boulders can be picked up or dropped
-        // We use pressure_plate_colors to remember the original color of plates even when covered
-        self.boulders_on_plates.clear();
-        for (&pos, &tile) in self.map.iter() {
-            if matches!(tile, Tile::Boulder) {
-                // Check if this position was originally a pressure plate
-                if let Some(&color) = self.pressure_plate_colors.get(&pos) {
-                    debug!("Boulder covers {:?} pressure plate at {:?}", color, pos);
-                    self.boulders_on_plates.entry(color).or_default().push(pos);
-                }
-            }
-        }
-
-        // Log the current state for debugging
-        if !self.boulders_on_plates.is_empty() {
-            for (color, positions) in &self.boulders_on_plates {
-                debug!("Boulders on {:?} plates: {} positions", color, positions.len());
-            }
-        }
     }
 
     fn update_frontier(&mut self) {
@@ -707,6 +683,25 @@ impl WorldState {
         }
     }
 
+    /// Compute which pressure plates currently have boulders on them
+    fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Pos>> {
+        let mut result: HashMap<Color, Vec<Pos>> = HashMap::new();
+
+        for boulder_pos in self.boulder_info.get_all_positions() {
+            // Check if this boulder position was originally a pressure plate
+            if let Some(&color) = self.pressure_plate_colors.get(&boulder_pos) {
+                // Verify the tile is actually a boulder
+                if let Some(tile) = self.map.get(&boulder_pos)
+                    && matches!(tile, Tile::Boulder)
+                {
+                    result.entry(color).or_default().push(boulder_pos);
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn has_key(&self, color: Color) -> bool {
         // Check if we have the actual key in inventory
         let has_physical_key = matches!(
@@ -717,8 +712,8 @@ impl WorldState {
         );
 
         // Check if there's a boulder on a pressure plate of this color
-        let has_boulder_on_plate = self
-            .boulders_on_plates
+        let boulders_on_plates = self.get_boulders_on_plates();
+        let has_boulder_on_plate = boulders_on_plates
             .get(&color)
             .is_some_and(|plates| !plates.is_empty());
 
