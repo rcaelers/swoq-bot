@@ -1,6 +1,5 @@
 use tracing::debug;
 
-use crate::pathfinding::AStar;
 use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
 use crate::world_state::WorldState;
@@ -66,9 +65,7 @@ impl ExecuteGoal for ExploreGoal {
         // If we have a destination, try to continue using it
         let player_pos = world.player().position;
         if let Some(dest) = world.player_mut().current_destination {
-            if let Some(path) = AStar::find_path(&world.map, player_pos, dest, |pos, goal| {
-                world.is_walkable(world.player(), pos, goal, false)
-            }) {
+            if let Some(path) = world.map.find_path(player_pos, dest) {
                 debug!("Continuing to existing destination {:?}, path length={}", dest, path.len());
                 world.player_mut().current_path = Some(path.clone());
                 return path_to_action(player_pos, &path);
@@ -94,9 +91,7 @@ impl ExecuteGoal for ExploreGoal {
                 );
             }
             attempts += 1;
-            if let Some(path) = AStar::find_path(&world.map, player_pos, *target, |pos, goal| {
-                world.is_walkable(world.player(), pos, goal, false)
-            }) {
+            if let Some(path) = world.map.find_path(player_pos, *target) {
                 debug!(
                     "New frontier destination: {:?}, path length={} (tried {} tiles)",
                     target,
@@ -125,9 +120,7 @@ impl ExecuteGoal for GetKeyGoal {
         let player_pos = world.player().position;
         let key_pos = world.closest_key(world.player(), self.0)?;
         world.player_mut().current_destination = Some(key_pos);
-        let path = AStar::find_path(&world.map, player_pos, key_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, false)
-        })?;
+        let path = world.map.find_path(player_pos, key_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -138,37 +131,51 @@ impl ExecuteGoal for OpenDoorGoal {
         let player_pos = world.player().position;
         let door_positions = world.doors.get_positions(self.0)?;
 
-        // Find the closest reachable door (not just by distance)
-        let mut closest_door: Option<(Position, usize)> = None;
-        for &door_pos in door_positions {
-            if let Some(path) = AStar::find_path(&world.map, player_pos, door_pos, |pos, goal| {
-                world.is_walkable(world.player(), pos, goal, false)
-            }) {
-                let path_len = path.len();
-                if closest_door.is_none() || path_len < closest_door.unwrap().1 {
-                    closest_door = Some((door_pos, path_len));
-                }
-            }
-        }
-
-        let door_pos = closest_door.map(|(pos, _)| pos)?;
-
         // OpenDoor is only for keys - if we don't have a key, this shouldn't be selected
         if !world.has_key(world.player(), self.0) {
             debug!("OpenDoor goal but no {:?} key!", self.0);
             return None;
         }
 
-        // If adjacent to door, use key on it
+        // Find the closest reachable door by finding the best empty neighbor
+        let mut best_target: Option<(Position, Position, usize)> = None; // (door_pos, neighbor_pos, path_len)
+
+        for &door_pos in door_positions {
+            // Check each neighbor of the door
+            for neighbor in door_pos.neighbors() {
+                // Only consider empty, walkable neighbors (or player position)
+                if neighbor != player_pos
+                    && !matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty))
+                {
+                    continue;
+                }
+
+                if !world.map.is_walkable(&neighbor, neighbor) {
+                    continue;
+                }
+
+                // Try to path to this neighbor
+                if let Some(path) = world.map.find_path(player_pos, neighbor) {
+                    let path_len = path.len();
+                    if best_target.is_none() || path_len < best_target.unwrap().2 {
+                        best_target = Some((door_pos, neighbor, path_len));
+                    }
+                }
+            }
+        }
+
+        let (door_pos, target_pos, _) = best_target?;
+
+        // If the door is adjacent to us, use the key on it
         if player_pos.is_adjacent(&door_pos) {
+            debug!("Door is adjacent, using key on door at {:?}", door_pos);
             return Some(use_direction(player_pos, door_pos));
         }
 
-        // Navigate to door (cannot open doors in pathfinding - door is destination only)
-        world.player_mut().current_destination = Some(door_pos);
-        let path = AStar::find_path(&world.map, player_pos, door_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, false)
-        })?;
+        // Navigate to the empty neighbor of the door
+        debug!("Navigating to neighbor {:?} of door at {:?}", target_pos, door_pos);
+        world.player_mut().current_destination = Some(target_pos);
+        let path = world.map.find_path(player_pos, target_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -203,9 +210,7 @@ impl ExecuteGoal for StepOnPressurePlateGoal {
             // Navigate to the pressure plate
             debug!("Navigating to pressure plate at {:?}", plate_pos);
             world.player_mut().current_destination = Some(plate_pos);
-            let path = AStar::find_path(&world.map, player_pos, plate_pos, |pos, goal| {
-                world.is_walkable(world.player(), pos, goal, false)
-            })?;
+            let path = world.map.find_path(player_pos, plate_pos)?;
             world.player_mut().current_path = Some(path.clone());
             path_to_action(player_pos, &path)
         }
@@ -217,9 +222,7 @@ impl ExecuteGoal for PickupSwordGoal {
         let player_pos = world.player().position;
         let sword_pos = *world.swords.get_positions().first()?;
         world.player_mut().current_destination = Some(sword_pos);
-        let path = AStar::find_path(&world.map, player_pos, sword_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, false)
-        })?;
+        let path = world.map.find_path(player_pos, sword_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -230,9 +233,7 @@ impl ExecuteGoal for PickupHealthGoal {
         let player_pos = world.player().position;
         let health_pos = world.closest_health(world.player())?;
         world.player_mut().current_destination = Some(health_pos);
-        let path = AStar::find_path(&world.map, player_pos, health_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, false)
-        })?;
+        let path = world.map.find_path(player_pos, health_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -243,9 +244,7 @@ impl ExecuteGoal for ReachExitGoal {
         let player_pos = world.player().position;
         let exit_pos = world.exit_position?;
         world.player_mut().current_destination = Some(exit_pos);
-        let path = AStar::find_path(&world.map, player_pos, exit_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, true)
-        })?;
+        let path = world.map.find_path(player_pos, exit_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -263,11 +262,8 @@ impl ExecuteGoal for KillEnemyGoal {
 
         // Move adjacent to enemy
         for adjacent in enemy_pos.neighbors() {
-            if world.is_walkable(world.player(), &adjacent, adjacent, false)
-                && let Some(path) =
-                    AStar::find_path(&world.map, player_pos, adjacent, |pos, goal| {
-                        world.is_walkable(world.player(), pos, goal, false)
-                    })
+            if world.map.is_walkable(&adjacent, adjacent)
+                && let Some(path) = world.map.find_path(player_pos, adjacent)
             {
                 world.player_mut().current_path = Some(path.clone());
                 return path_to_action(player_pos, &path);
@@ -296,11 +292,8 @@ impl ExecuteGoal for FetchBoulderGoal {
 
         // Navigate to an adjacent walkable position next to the boulder
         for adjacent in boulder_pos.neighbors() {
-            if world.is_walkable(world.player(), &adjacent, adjacent, true)
-                && let Some(path) =
-                    AStar::find_path(&world.map, player_pos, adjacent, |pos, goal| {
-                        world.is_walkable(world.player(), pos, goal, true)
-                    })
+            if world.map.is_walkable(&adjacent, adjacent)
+                && let Some(path) = world.map.find_path(player_pos, adjacent)
             {
                 debug!("Moving to adjacent position {:?} to reach boulder", adjacent);
                 world.player_mut().current_destination = Some(adjacent);
@@ -326,9 +319,7 @@ impl ExecuteGoal for DropBoulderOnPlateGoal {
 
         // Navigate to the pressure plate
         world.player_mut().current_destination = Some(plate_pos);
-        let path = AStar::find_path(&world.map, player_pos, plate_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, true)
-        })?;
+        let path = world.map.find_path(player_pos, plate_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -374,7 +365,7 @@ impl ExecuteGoal for DropBoulderGoal {
                 }
                 _ => continue,
             };
-            if world.is_walkable(world.player(), &next_pos, next_pos, true) {
+            if world.map.is_walkable(&next_pos, next_pos) {
                 return Some(direction);
             }
         }
@@ -429,7 +420,7 @@ fn flee_direction(world: &WorldState, enemy_pos: Position) -> Option<DirectedAct
 
     for (action, new_pos) in actions {
         // Only consider walkable positions
-        if !world.is_walkable(world.player(), &new_pos, new_pos, true) {
+        if !world.map.is_walkable(&new_pos, new_pos) {
             continue;
         }
 
@@ -452,9 +443,7 @@ impl ExecuteGoal for RandomExploreGoal {
 
         // Try to path to the random position
         world.player_mut().current_destination = Some(target_pos);
-        let path = AStar::find_path(&world.map, player_pos, target_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, true)
-        })?;
+        let path = world.map.find_path(player_pos, target_pos)?;
         world.player_mut().current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }

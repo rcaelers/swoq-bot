@@ -1,7 +1,6 @@
 use tracing::debug;
 
 use crate::goal::Goal;
-use crate::pathfinding::AStar;
 use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
 use crate::world_state::WorldState;
@@ -173,13 +172,10 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
             {
                 // Check if we can reach the plate
                 if world.player().position.is_adjacent(&plate_pos)
-                    || AStar::find_path(
-                        &world.map,
-                        world.player().position,
-                        plate_pos,
-                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
-                    )
-                    .is_some()
+                    || world
+                        .map
+                        .find_path(world.player().position, plate_pos)
+                        .is_some()
                 {
                     debug!("Found reachable {:?} pressure plate at {:?}", color, plate_pos);
                     return Some(Goal::DropBoulderOnPlate(color, plate_pos));
@@ -213,13 +209,10 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
                 for &plate_pos in plates {
                     // Can we reach the plate?
                     if !world.player().position.is_adjacent(&plate_pos)
-                        && AStar::find_path(
-                            &world.map,
-                            world.player().position,
-                            plate_pos,
-                            |pos, goal| world.is_walkable(world.player(), pos, goal, false),
-                        )
-                        .is_none()
+                        && world
+                            .map
+                            .find_path(world.player().position, plate_pos)
+                            .is_none()
                     {
                         continue;
                     }
@@ -246,23 +239,38 @@ impl SelectGoal for OpenDoorWithKeyStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         for &color in world.doors.colors() {
             if world.has_key(world.player(), color) {
-                let door_pos = world.closest_door_of_color(world.player(), color)?;
-                debug!("We have key for {:?}, door at {:?}", color, door_pos);
+                let door_positions = world.doors.get_positions(color)?;
 
-                // Check if door is reachable (can path through doors we have keys for)
-                if world.player().position.is_adjacent(&door_pos)
-                    || AStar::find_path(
-                        &world.map,
-                        world.player().position,
-                        door_pos,
-                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
-                    )
-                    .is_some()
-                {
-                    debug!("(we have the key, door is reachable)");
-                    return Some(Goal::OpenDoor(color));
-                } else {
-                    debug!("Door at {:?} is not reachable", door_pos);
+                // Check if any door of this color has a reachable empty neighbor
+                for &door_pos in door_positions {
+                    debug!("Checking door {:?} at {:?}", color, door_pos);
+
+                    // Check if any neighbor of the door is reachable
+                    let has_reachable_neighbor = door_pos.neighbors().iter().any(|&neighbor| {
+                        // Only consider empty tiles (or player position)
+                        if neighbor != world.player().position
+                            && !matches!(
+                                world.map.get(&neighbor),
+                                Some(crate::swoq_interface::Tile::Empty)
+                            )
+                        {
+                            return false;
+                        }
+
+                        // Check if player is already at this neighbor or can path to it
+                        world.player().position == neighbor
+                            || world
+                                .map
+                                .find_path(world.player().position, neighbor)
+                                .is_some()
+                    });
+
+                    if has_reachable_neighbor {
+                        debug!("(we have the key, door has reachable empty neighbor)");
+                        return Some(Goal::OpenDoor(color));
+                    } else {
+                        debug!("Door at {:?} has no reachable empty neighbors", door_pos);
+                    }
                 }
             }
         }
@@ -287,13 +295,10 @@ impl SelectGoal for GetKeyForDoorStrategy {
                     debug!("Closest key for {:?} is at {:?}", color, key_pos);
                     // Use can_open_doors=true to allow using keys we already have
                     // Use avoid_keys=true to not pick up other keys along the way
-                    if AStar::find_path(
-                        &world.map,
-                        world.player().position,
-                        key_pos,
-                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
-                    )
-                    .is_some()
+                    if world
+                        .map
+                        .find_path(world.player().position, key_pos)
+                        .is_some()
                     {
                         debug!("(key is reachable)");
                         return Some(Goal::GetKey(color));
@@ -321,10 +326,10 @@ impl SelectGoal for ReachExitStrategy {
         }
 
         // Check if we can actually path to the exit
-        if AStar::find_path(&world.map, world.player().position, exit_pos, |pos, goal| {
-            world.is_walkable(world.player(), pos, goal, true)
-        })
-        .is_some()
+        if world
+            .map
+            .find_path(world.player().position, exit_pos)
+            .is_some()
         {
             Some(Goal::ReachExit)
         } else {
@@ -363,14 +368,8 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
             if dist < nearest_distance {
                 // Check if we can reach an adjacent position to pick it up
                 let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                    world.is_walkable(world.player(), &adj, adj, true)
-                        && AStar::find_path(
-                            &world.map,
-                            world.player().position,
-                            adj,
-                            |pos, goal| world.is_walkable(world.player(), pos, goal, true),
-                        )
-                        .is_some()
+                    world.map.is_walkable(&adj, adj)
+                        && world.map.find_path(world.player().position, adj).is_some()
                 });
 
                 if can_reach {
@@ -412,14 +411,8 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 
                 // Check if we can reach an adjacent position to pick it up
                 let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                    world.is_walkable(world.player(), &adj, adj, true)
-                        && AStar::find_path(
-                            &world.map,
-                            world.player().position,
-                            adj,
-                            |pos, goal| world.is_walkable(world.player(), pos, goal, true),
-                        )
-                        .is_some()
+                    world.map.is_walkable(&adj, adj)
+                        && world.map.find_path(world.player().position, adj).is_some()
                 });
 
                 if can_reach {
@@ -449,13 +442,10 @@ impl SelectGoal for FallbackPressurePlateStrategy {
                 for &plate_pos in plates {
                     // Check if we can reach the plate
                     if world.player().position.is_adjacent(&plate_pos)
-                        || AStar::find_path(
-                            &world.map,
-                            world.player().position,
-                            plate_pos,
-                            |pos, goal| world.is_walkable(world.player(), pos, goal, false),
-                        )
-                        .is_some()
+                        || world
+                            .map
+                            .find_path(world.player().position, plate_pos)
+                            .is_some()
                     {
                         debug!(
                             "Found reachable {:?} pressure plate at {:?} as fallback",
@@ -513,42 +503,57 @@ impl SelectGoal for RandomExploreStrategy {
             return None;
         }
 
-        debug!("RandomExploreStrategy: Frontier empty, selecting random reachable position");
-
-        // Collect all reachable empty positions that we've seen
-        let mut reachable_positions = Vec::new();
-        for (pos, tile) in world.map.iter() {
-            // Only consider empty tiles that are far from player
-            if matches!(tile, crate::swoq_interface::Tile::Empty)
-                && world.player().position.distance(pos) > 5
-            {
-                // Check if reachable
-                if AStar::find_path(&world.map, world.player().position, *pos, |p, g| {
-                    world.is_walkable(world.player(), p, g, true)
-                })
-                .is_some()
-                {
-                    reachable_positions.push(*pos);
-                }
-            }
+        // If we already have a RandomExplore goal and destination, keep it
+        if let Some(Goal::RandomExplore(_)) = &world.player().previous_goal
+            && world.player().current_destination.is_some()
+        {
+            debug!("RandomExploreStrategy: Continuing with existing destination");
+            return world.player().previous_goal.clone();
         }
 
-        if reachable_positions.is_empty() {
-            debug!("RandomExploreStrategy: No reachable positions found");
+        debug!("RandomExploreStrategy: Frontier empty, selecting random reachable position");
+
+        // Collect all empty positions that we've seen
+        let empty_positions: Vec<Position> = world
+            .map
+            .iter()
+            .filter_map(|(pos, tile)| {
+                if matches!(tile, crate::swoq_interface::Tile::Empty)
+                    && world.player().position.distance(pos) > 5
+                {
+                    Some(*pos)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if empty_positions.is_empty() {
+            debug!("RandomExploreStrategy: No empty positions found");
             return None;
         }
 
-        // Pick a random position (using tick as seed for deterministic behavior)
-        let index = (world.tick as usize) % reachable_positions.len();
-        let target = reachable_positions[index];
+        // Try random positions until we find a reachable one (max 10 attempts)
+        let mut seed = world.tick as usize;
+        for _ in 0..10 {
+            let index = seed % empty_positions.len();
+            let target = empty_positions[index];
 
-        debug!(
-            "RandomExploreStrategy: Selected position {:?} (option {} of {})",
-            target,
-            index,
-            reachable_positions.len()
-        );
+            // Check if reachable
+            if world
+                .map
+                .find_path(world.player().position, target)
+                .is_some()
+            {
+                debug!("RandomExploreStrategy: Selected reachable position {:?}", target);
+                return Some(Goal::RandomExplore(target));
+            }
 
-        Some(Goal::RandomExplore(target))
+            // Try next position
+            seed = seed.wrapping_add(1);
+        }
+
+        debug!("RandomExploreStrategy: No reachable position found after 10 attempts");
+        None
     }
 }

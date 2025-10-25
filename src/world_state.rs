@@ -411,34 +411,6 @@ impl WorldState {
         }
     }
 
-    pub fn is_walkable(&self, player: &PlayerState, pos: &Position, goal: Position, can_open_doors: bool) -> bool {
-        match self.map.get(pos) {
-            Some(
-                Tile::Empty
-                | Tile::Exit
-                | Tile::Player
-                | Tile::Sword
-                | Tile::Health
-                | Tile::PressurePlateRed
-                | Tile::PressurePlateGreen
-                | Tile::PressurePlateBlue
-                | Tile::Treasure
-                | Tile::Unknown, // Fog of war - assume walkable
-            ) => true,
-            // Keys: always avoid unless it's the destination
-            Some(Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue) => {
-                // Allow walking on the destination key, avoid all others
-                *pos == goal
-            }
-            // Doors: walkable if it's the destination OR if we can open doors and have the key
-            Some(Tile::DoorRed) => *pos == goal || (can_open_doors && self.has_key(player, Color::Red)),
-            Some(Tile::DoorGreen) => *pos == goal || (can_open_doors && self.has_key(player, Color::Green)),
-            Some(Tile::DoorBlue) => *pos == goal || (can_open_doors && self.has_key(player, Color::Blue)),
-            None => true, // Never seen tiles - assume walkable
-            _ => false,
-        }
-    }
-
     /// Compute which pressure plates currently have boulders on them
     pub fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Position>> {
         let mut result: HashMap<Color, Vec<Position>> = HashMap::new();
@@ -496,6 +468,7 @@ impl WorldState {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn closest_door_of_color(&self, player: &PlayerState, color: Color) -> Option<Position> {
         self.doors.closest_to(color, player.position)
     }
