@@ -1,9 +1,10 @@
+use std::time::Instant;
+
 use crate::game_observer::GameObserver;
 use crate::strategy::Planner;
 use crate::swoq::GameConnection;
 use crate::swoq_interface::{self, GameStatus};
 use crate::world_state::WorldState;
-use std::time::Instant;
 
 pub struct Game {
     connection: GameConnection,

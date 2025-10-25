@@ -1,9 +1,11 @@
-use crate::swoq_interface::Tile;
-use crate::world_state::{Pos, WorldState};
 use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use std::env;
 use std::sync::{Arc, Mutex, mpsc};
+
+use crate::swoq_interface::Tile;
+use crate::types::Position;
+use crate::world_state::WorldState;
 
 #[derive(Debug, Clone)]
 pub struct LogMessage {
@@ -85,7 +87,7 @@ pub struct TileAssets {
 #[derive(Component)]
 struct MapTile {
     #[allow(dead_code)]
-    pos: Pos,
+    pos: Position,
 }
 
 #[derive(Component)]
@@ -348,8 +350,8 @@ fn render_world_state(
     // Set camera once based on full maze dimensions (not discovered tiles)
     if !*camera_initialized && let Ok(mut camera_transform) = camera_query.single_mut() {
         // Calculate scale to fit entire maze in the MAP_WIDTH area
-        let map_width = world_state.map_width as f32 * TILE_SIZE;
-        let map_height = world_state.map_height as f32 * TILE_SIZE;
+        let map_width = world_state.map.width as f32 * TILE_SIZE;
+        let map_height = world_state.map.height as f32 * TILE_SIZE;
 
         let scale_x = MAP_WIDTH / map_width;
         let scale_y = WINDOW_HEIGHT / map_height;
@@ -377,7 +379,7 @@ fn render_world_state(
     let center_y = ((WINDOW_HEIGHT / 2.0) - 20.0 - (TILE_SIZE / 2.0)) * camera_scale;
 
     // Render all known tiles
-    for (pos, tile) in &world_state.map {
+    for (pos, tile) in world_state.map.iter() {
         let x = center_x + (pos.x as f32 * TILE_SIZE);
         let y = center_y - (pos.y as f32 * TILE_SIZE);
 
@@ -396,7 +398,7 @@ fn render_world_state(
     }
 
     // Render unexplored frontier (positions that can be reached but haven't been explored yet)
-    for pos in &world_state.unexplored_frontier {
+    for pos in &world_state.player().unexplored_frontier {
         let x = center_x + (pos.x as f32 * TILE_SIZE);
         let y = center_y - (pos.y as f32 * TILE_SIZE);
 
@@ -412,8 +414,34 @@ fn render_world_state(
         ));
     }
 
-    // Render blue borders around unmoved boulders
-    for boulder_pos in world_state.boulder_info.get_original_boulders() {
+    // Render colored borders around boulders on pressure plates
+    let boulders_on_plates = world_state.get_boulders_on_plates();
+    for (color, boulder_positions) in boulders_on_plates.iter() {
+        let border_color = match color {
+            crate::types::Color::Red => Color::srgb(1.0, 0.0, 0.0),
+            crate::types::Color::Green => Color::srgb(0.0, 1.0, 0.0),
+            crate::types::Color::Blue => Color::srgb(0.0, 0.5, 1.0),
+        };
+
+        for &boulder_pos in boulder_positions {
+            let x = center_x + (boulder_pos.x as f32 * TILE_SIZE);
+            let y = center_y - (boulder_pos.y as f32 * TILE_SIZE);
+
+            // Draw colored border around boulder on plate
+            spawn_tile_border(commands, x, y, border_color, 3.0, 0.55);
+        }
+    }
+
+    // Render blue borders around unmoved boulders (that are not on plates)
+    for boulder_pos in world_state.boulders.get_original_boulders() {
+        // Skip if this boulder is on a plate (already rendered with colored border)
+        let is_on_plate = boulders_on_plates
+            .values()
+            .any(|positions| positions.contains(&boulder_pos));
+        if is_on_plate {
+            continue;
+        }
+
         let x = center_x + (boulder_pos.x as f32 * TILE_SIZE);
         let y = center_y - (boulder_pos.y as f32 * TILE_SIZE);
 
@@ -422,7 +450,7 @@ fn render_world_state(
     }
 
     // Render current path (if available)
-    if let Some(ref path) = world_state.current_path {
+    if let Some(ref path) = world_state.player().current_path {
         for pos in path.iter() {
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);
@@ -433,7 +461,7 @@ fn render_world_state(
     }
 
     // Render current destination (if available)
-    if let Some(dest) = world_state.current_destination {
+    if let Some(dest) = world_state.player().current_destination {
         let x = center_x + (dest.x as f32 * TILE_SIZE);
         let y = center_y - (dest.y as f32 * TILE_SIZE);
 
@@ -442,8 +470,8 @@ fn render_world_state(
     }
 
     // Render the player
-    let player_x = center_x + (world_state.player_pos.x as f32 * TILE_SIZE);
-    let player_y = center_y - (world_state.player_pos.y as f32 * TILE_SIZE);
+    let player_x = center_x + (world_state.player().position.x as f32 * TILE_SIZE);
+    let player_y = center_y - (world_state.player().position.y as f32 * TILE_SIZE);
 
     commands.spawn((
         Sprite {
@@ -461,13 +489,13 @@ fn render_world_state(
             "Level: {} | Tick: {} | Health: {:?} | Sword: {} | Inventory: {:?}",
             world_state.level,
             world_state.tick,
-            world_state.player_health,
-            if world_state.player_has_sword {
+            world_state.player().health,
+            if world_state.player().has_sword {
                 "YES"
             } else {
                 "NO"
             },
-            world_state.player_inventory
+            world_state.player().inventory
         )),
         TextFont {
             font_size: 20.0,

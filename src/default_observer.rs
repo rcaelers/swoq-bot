@@ -1,9 +1,10 @@
+use std::io::{self, Write};
+use tracing::info;
+
 use crate::game_observer::GameObserver;
 use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
-use std::io::{self, Write};
-use tracing::info;
 
 pub struct DefaultObserver;
 
@@ -31,17 +32,17 @@ impl GameObserver for DefaultObserver {
     fn on_state_update(&mut self, state: &State, world: &WorldState) {
         info!(
             "tick: {}, pos: ({}, {}), health: {}",
-            state.tick, world.player_pos.x, world.player_pos.y, world.player_health,
+            state.tick, world.player().position.x, world.player().position.y, world.player().health,
         );
 
         let map = world.draw_ascii_map();
         let _ = writeln!(io::stdout(), "{}", map);
 
-        let _ = write!(io::stdout(), "Inventory: {:?}", world.player_inventory);
-        if world.player_has_sword {
+        let _ = write!(io::stdout(), "Inventory: {:?}", world.player().inventory);
+        if world.player().has_sword {
             let _ = write!(io::stdout(), " [Has Sword]");
         }
-        let _ = writeln!(io::stdout(), " | Health: {}", world.player_health);
+        let _ = writeln!(io::stdout(), " | Health: {}", world.player().health);
     }
 
     fn on_goal_selected(&mut self, goal: &Goal, _world: &WorldState) {

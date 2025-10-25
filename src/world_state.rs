@@ -1,109 +1,54 @@
-use crate::boulder_tracker::BoulderTracker;
-use crate::item_tracker::{ColoredItemTracker, ItemTracker};
-use crate::swoq_interface::{Inventory, State, Tile};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
 use tracing::{debug, warn};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Pos {
-    pub x: i32,
-    pub y: i32,
+use crate::boulder_tracker::BoulderTracker;
+use crate::item_tracker::{ColoredItemTracker, ItemTracker};
+use crate::map::Map;
+use crate::player_state::PlayerState;
+use crate::swoq_interface::{Inventory, State, Tile};
+use crate::types::{Bounds, Color, Position};
+
+struct SurroundingsData<'a> {
+    surroundings: &'a [i32],
+    center: Position,
+    bounds: Bounds,
 }
 
-impl Pos {
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn distance(&self, other: &Pos) -> i32 {
-        (self.x - other.x).abs() + (self.y - other.y).abs()
-    }
-
-    pub fn neighbors(&self) -> [Pos; 4] {
-        [
-            Pos::new(self.x, self.y - 1), // North
-            Pos::new(self.x + 1, self.y), // East
-            Pos::new(self.x, self.y + 1), // South
-            Pos::new(self.x - 1, self.y), // West
-        ]
-    }
-
-    pub fn is_adjacent(&self, other: &Pos) -> bool {
-        self.distance(other) == 1
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Bounds {
-    pub min_x: i32,
-    pub max_x: i32,
-    pub min_y: i32,
-    pub max_y: i32,
-}
-
-impl Bounds {
-    pub fn new(min_x: i32, max_x: i32, min_y: i32, max_y: i32) -> Self {
-        Self {
-            min_x,
-            max_x,
-            min_y,
-            max_y,
-        }
-    }
-
-    pub fn contains(&self, pos: &Pos) -> bool {
-        pos.x >= self.min_x && pos.x <= self.max_x && pos.y >= self.min_y && pos.y <= self.max_y
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Color {
-    Red,
-    Green,
-    Blue,
+#[derive(Debug, Default)]
+struct SeenItems {
+    keys: HashMap<Color, Vec<Position>>,
+    doors: HashMap<Color, Vec<Position>>,
+    pressure_plates: HashMap<Color, Vec<Position>>,
+    boulders: Vec<Position>,
+    swords: Vec<Position>,
+    health: Vec<Position>,
+    enemies: Vec<Position>,
 }
 
 #[derive(Clone)]
 pub struct WorldState {
     pub level: i32,
     pub tick: i32,
-    pub map_width: i32,
-    pub map_height: i32,
     pub visibility_range: i32,
 
-    // Map tiles
-    pub map: HashMap<Pos, Tile>,
+    // Map
+    pub map: Map,
 
-    // Player 1 state
-    pub player_pos: Pos,
-    pub player_health: i32,
-    pub player_inventory: Inventory,
-    pub player_has_sword: bool,
-
-    // Player 2 state (level 12+)
-    pub player2_pos: Option<Pos>,
-    pub player2_health: Option<i32>,
-    pub player2_inventory: Option<Inventory>,
-    pub player2_has_sword: Option<bool>,
+    // Player states (1 or 2 players)
+    pub players: Vec<PlayerState>,
 
     // Tracked positions
     pub keys: ColoredItemTracker,
     pub doors: ColoredItemTracker,
     pub enemies: ItemTracker,
-    pub boulder_info: BoulderTracker,
+    pub boulders: BoulderTracker,
     pub swords: ItemTracker,
     pub health: ItemTracker,
     pub pressure_plates: ColoredItemTracker,
-    pub exit_pos: Option<Pos>,
-    pub boss_position: Option<Pos>,
-    pub treasure_position: Option<Pos>,
-
-    pub unexplored_frontier: HashSet<Pos>,
-
-    // Planning state to avoid oscillation
-    pub previous_goal: Option<crate::goal::Goal>,
-    pub current_destination: Option<Pos>,
-    pub current_path: Option<Vec<Pos>>,
+    pub exit_position: Option<Position>,
+    pub boss_position: Option<Position>,
+    pub treasure_position: Option<Position>,
 }
 
 impl WorldState {
@@ -111,33 +56,30 @@ impl WorldState {
         Self {
             level: 0,
             tick: 0,
-            map_width,
-            map_height,
             visibility_range,
-            map: HashMap::new(),
-            player_pos: Pos::new(0, 0),
-            player_health: 10,
-            player_inventory: Inventory::None,
-            player_has_sword: false,
-            player2_pos: None,
-            player2_health: None,
-            player2_inventory: None,
-            player2_has_sword: None,
-            exit_pos: None,
+            map: Map::new(map_width, map_height),
+            players: vec![PlayerState::new(Position::new(0, 0))],
+            exit_position: None,
             keys: ColoredItemTracker::new(),
             doors: ColoredItemTracker::new(),
             enemies: ItemTracker::new(),
-            boulder_info: BoulderTracker::new(),
+            boulders: BoulderTracker::new(),
             swords: ItemTracker::new(),
             health: ItemTracker::new(),
             pressure_plates: ColoredItemTracker::new(),
             boss_position: None,
             treasure_position: None,
-            unexplored_frontier: HashSet::new(),
-            previous_goal: None,
-            current_destination: None,
-            current_path: None,
         }
+    }
+
+    /// Get the first player (the bot's controlled player)
+    pub fn player(&self) -> &PlayerState {
+        &self.players[0]
+    }
+
+    /// Get mutable reference to the first player (the bot's controlled player)
+    pub fn player_mut(&mut self) -> &mut PlayerState {
+        &mut self.players[0]
     }
 
     #[tracing::instrument(level = "trace", skip(self, state))]
@@ -145,118 +87,135 @@ impl WorldState {
         self.level = state.level;
         self.tick = state.tick;
 
-        // Update player 1
-        if let Some(player_state) = &state.player_state {
-            if let Some(position) = &player_state.position {
-                self.player_pos = Pos::new(position.x, position.y);
-            }
-            self.player_health = player_state.health.unwrap_or(10);
-            self.player_has_sword = player_state.has_sword.unwrap_or(false);
-            self.player_inventory = player_state
-                .inventory
-                .and_then(|i| Inventory::try_from(i).ok())
-                .unwrap_or(Inventory::None);
+        let mut all_surroundings = Vec::new();
 
-            // Update map from surroundings
-            self.integrate_surroundings(&player_state.surroundings, self.player_pos);
+        // Update player 1
+        if let Some(player_state) = &state.player_state
+            && let Some(p1) = self.players.get_mut(0)
+        {
+            Self::update_player_state_fields(p1, player_state);
+            let bounds = Bounds::from_center_and_range(p1.position, self.visibility_range);
+            all_surroundings.push(SurroundingsData {
+                surroundings: &player_state.surroundings,
+                center: p1.position,
+                bounds,
+            });
         }
 
         // Update player 2 (level 12+)
         if let Some(player2_state) = &state.player2_state {
-            if let Some(position) = &player2_state.position {
-                self.player2_pos = Some(Pos::new(position.x, position.y));
+            if self.players.len() == 1 {
+                self.players.push(PlayerState::new(Position::new(0, 0)));
             }
-            self.player2_health = player2_state.health;
-            self.player2_has_sword = player2_state.has_sword;
-            self.player2_inventory = player2_state
-                .inventory
-                .and_then(|i| Inventory::try_from(i).ok());
+            if let Some(p2) = self.players.get_mut(1) {
+                Self::update_player_state_fields(p2, player2_state);
+                let bounds = Bounds::from_center_and_range(p2.position, self.visibility_range);
+                all_surroundings.push(SurroundingsData {
+                    surroundings: &player2_state.surroundings,
+                    center: p2.position,
+                    bounds,
+                });
+            }
         }
 
-        self.update_frontier();
+        self.integrate_surroundings(all_surroundings);
+        for player in self.players.iter_mut() {
+            player.update_frontier(&self.map);
+        }
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn reset_for_new_level(&mut self) {
-        // Clear all map data for the new level
         self.map.clear();
-        self.exit_pos = None;
+        self.exit_position = None;
         self.keys.clear();
         self.doors.clear();
         self.enemies.clear();
-        self.boulder_info.clear();
+        self.boulders.clear();
         self.swords.clear();
         self.health.clear();
         self.pressure_plates.clear();
         self.boss_position = None;
         self.treasure_position = None;
-        self.unexplored_frontier.clear();
 
-        // Reset player state will be updated from the new state
-        self.player_inventory = Inventory::None;
-        self.player_has_sword = false;
-        self.player2_pos = None;
-        self.player2_health = None;
-        self.player2_inventory = None;
-        self.player2_has_sword = None;
-
-        // Clear planning state
-        self.previous_goal = None;
-        self.current_destination = None;
-        self.current_path = None;
+        // Clear all players and reset to single player
+        self.players.truncate(1);
+        if let Some(p1) = self.players.get_mut(0) {
+            p1.clear();
+        }
     }
 
-    #[tracing::instrument(level = "trace", skip(self, surroundings), fields(center_x = center.x, center_y = center.y, surroundings_len = surroundings.len()))]
-    fn integrate_surroundings(&mut self, surroundings: &[i32], center: Pos) {
-        let size = (self.visibility_range * 2 + 1) as usize;
+    fn update_player_state_fields(
+        player: &mut PlayerState,
+        player_state: &crate::swoq_interface::PlayerState,
+    ) {
+        if let Some(position) = &player_state.position {
+            player.position = Position::new(position.x, position.y);
+        }
+        player.health = player_state.health.unwrap_or(10);
+        player.has_sword = player_state.has_sword.unwrap_or(false);
+        player.inventory = player_state
+            .inventory
+            .and_then(|i| Inventory::try_from(i).ok())
+            .unwrap_or(Inventory::None);
+    }
 
-        // Calculate visibility bounds
-        let bounds = Bounds::new(
-            center.x - self.visibility_range,
-            center.x + self.visibility_range,
-            center.y - self.visibility_range,
-            center.y + self.visibility_range,
-        );
+    #[tracing::instrument(level = "trace", skip(self, all_surroundings))]
+    fn integrate_surroundings(&mut self, all_surroundings: Vec<SurroundingsData>) {
+        if all_surroundings.is_empty() {
+            return;
+        }
 
-        // Remove Unknown tiles that are now outside our visibility range
+        // Remove Unknown tiles that are now outside all players' visibility ranges
         // They should revert to unseen (None/?) since we have no current information
+        let combined_bounds: Vec<Bounds> = all_surroundings.iter().map(|s| s.bounds).collect();
         self.map.retain(|pos, tile| {
             if *tile == Tile::Unknown {
-                // Keep Unknown tiles only if they're in our current visibility range
-                bounds.contains(pos)
+                // Keep Unknown tiles only if they're in any player's current visibility range
+                combined_bounds.iter().any(|b| b.contains(pos))
             } else {
                 // Keep all other tiles (permanent ones should persist)
                 true
             }
         });
 
-        // Track which permanent items we can currently see
-        let mut seen_keys: HashMap<Color, Vec<Pos>> = HashMap::new();
-        let mut seen_doors: HashMap<Color, Vec<Pos>> = HashMap::new();
-        let mut seen_pressure_plates: HashMap<Color, Vec<Pos>> = HashMap::new();
-        let mut seen_boulders: Vec<Pos> = Vec::new();
-        let mut seen_swords: Vec<Pos> = Vec::new();
-        let mut seen_health: Vec<Pos> = Vec::new();
-        let mut seen_enemies: Vec<Pos> = Vec::new();
+        // Track which permanent items we can currently see across all surroundings
+        let mut seen_items = SeenItems::default();
 
-        for (idx, &tile_val) in surroundings.iter().enumerate() {
+        // Process each set of surroundings and collect items
+        for data in &all_surroundings {
+            self.process_surroundings(data, &mut seen_items);
+        }
+
+        // Update item trackers with collected items
+        // Pass all bounds so items are validated if visible to ANY player
+        self.update_item_trackers(&combined_bounds, seen_items);
+    }
+
+    fn process_surroundings(&mut self, data: &SurroundingsData, seen_items: &mut SeenItems) {
+        let size = (self.visibility_range * 2 + 1) as usize;
+        for (idx, &tile_val) in data.surroundings.iter().enumerate() {
             let row = (idx / size) as i32;
             let col = (idx % size) as i32;
 
-            let pos = Pos::new(
-                center.x + col - self.visibility_range,
-                center.y + row - self.visibility_range,
+            let tile_position = Position::new(
+                data.center.x + col - self.visibility_range,
+                data.center.y + row - self.visibility_range,
             );
 
             // Skip out-of-bounds
-            if pos.x < 0 || pos.x >= self.map_width || pos.y < 0 || pos.y >= self.map_height {
+            if tile_position.x < 0
+                || tile_position.x >= self.map.width
+                || tile_position.y < 0
+                || tile_position.y >= self.map.height
+            {
                 continue;
             }
 
             if let Ok(tile) = Tile::try_from(tile_val) {
                 // Don't overwrite known permanent tiles with Unknown (fog of war)
                 // Only update if it's new info or if we're updating a temporary tile
-                let should_update = match (self.map.get(&pos), tile) {
+                let should_update = match (self.map.get(&tile_position), tile) {
                     // Don't replace walls with Unknown
                     (Some(Tile::Wall), Tile::Unknown) => false,
                     // Don't replace Empty with Unknown - we know it's empty
@@ -273,84 +232,113 @@ impl WorldState {
 
                 // Check for dropped boulder BEFORE updating the map
                 if tile == Tile::Boulder {
-                    self.check_dropped_boulder(pos);
+                    self.check_dropped_boulder(tile_position);
                 }
 
                 if should_update {
-                    self.map.insert(pos, tile);
+                    self.map.insert(tile_position, tile);
                 }
 
-                // Track special tiles we can see (only if not Unknown)
+                // Track special global tiles (exit, boss, treasure) and items
                 if tile != Tile::Unknown {
                     match tile {
-                        Tile::Exit => self.exit_pos = Some(pos),
+                        Tile::Exit => self.exit_position = Some(tile_position),
+                        Tile::Boss => self.boss_position = Some(tile_position),
+                        Tile::Treasure => self.treasure_position = Some(tile_position),
                         Tile::KeyRed => {
-                            seen_keys.entry(Color::Red).or_default().push(pos);
-                        }
-                        Tile::KeyGreen => {
-                            seen_keys.entry(Color::Green).or_default().push(pos);
-                        }
-                        Tile::KeyBlue => {
-                            seen_keys.entry(Color::Blue).or_default().push(pos);
-                        }
-                        Tile::DoorRed => {
-                            seen_doors.entry(Color::Red).or_default().push(pos);
-                        }
-                        Tile::DoorGreen => {
-                            seen_doors.entry(Color::Green).or_default().push(pos);
-                        }
-                        Tile::DoorBlue => {
-                            seen_doors.entry(Color::Blue).or_default().push(pos);
-                        }
-                        Tile::Enemy => seen_enemies.push(pos),
-                        Tile::Boulder => seen_boulders.push(pos),
-                        Tile::Sword => seen_swords.push(pos),
-                        Tile::Health => seen_health.push(pos),
-                        Tile::PressurePlateRed => {
-                            seen_pressure_plates
+                            seen_items
+                                .keys
                                 .entry(Color::Red)
                                 .or_default()
-                                .push(pos);
+                                .push(tile_position);
                         }
-                        Tile::PressurePlateGreen => {
-                            seen_pressure_plates
+                        Tile::KeyGreen => {
+                            seen_items
+                                .keys
                                 .entry(Color::Green)
                                 .or_default()
-                                .push(pos);
+                                .push(tile_position);
                         }
-                        Tile::PressurePlateBlue => {
-                            seen_pressure_plates
+                        Tile::KeyBlue => {
+                            seen_items
+                                .keys
                                 .entry(Color::Blue)
                                 .or_default()
-                                .push(pos);
+                                .push(tile_position);
                         }
-                        Tile::Boss => self.boss_position = Some(pos),
-                        Tile::Treasure => self.treasure_position = Some(pos),
+                        Tile::DoorRed => {
+                            seen_items
+                                .doors
+                                .entry(Color::Red)
+                                .or_default()
+                                .push(tile_position);
+                        }
+                        Tile::DoorGreen => {
+                            seen_items
+                                .doors
+                                .entry(Color::Green)
+                                .or_default()
+                                .push(tile_position);
+                        }
+                        Tile::DoorBlue => {
+                            seen_items
+                                .doors
+                                .entry(Color::Blue)
+                                .or_default()
+                                .push(tile_position);
+                        }
+                        Tile::Enemy => seen_items.enemies.push(tile_position),
+                        Tile::Boulder => seen_items.boulders.push(tile_position),
+                        Tile::Sword => seen_items.swords.push(tile_position),
+                        Tile::Health => seen_items.health.push(tile_position),
+                        Tile::PressurePlateRed => {
+                            seen_items
+                                .pressure_plates
+                                .entry(Color::Red)
+                                .or_default()
+                                .push(tile_position);
+                        }
+                        Tile::PressurePlateGreen => {
+                            seen_items
+                                .pressure_plates
+                                .entry(Color::Green)
+                                .or_default()
+                                .push(tile_position);
+                        }
+                        Tile::PressurePlateBlue => {
+                            seen_items
+                                .pressure_plates
+                                .entry(Color::Blue)
+                                .or_default()
+                                .push(tile_position);
+                        }
                         _ => {}
                     }
                 }
             }
         }
+    }
 
+    fn update_item_trackers(&mut self, all_bounds: &[Bounds], seen_items: SeenItems) {
         // Update key positions using ColoredItemTracker
         self.keys.update(
-            seen_keys,
+            seen_items.keys,
             &self.map,
             |tile| matches!(tile, Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue),
-            &bounds,
+            all_bounds,
         );
 
         // Update door positions using ColoredItemTracker
         self.doors.update(
-            seen_doors,
+            seen_items.doors,
             &self.map,
             |tile| matches!(tile, Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue),
-            &bounds,
+            all_bounds,
         );
 
         // Update pressure plates using ColoredItemTracker
         self.pressure_plates.update(
-            seen_pressure_plates,
+            seen_items.pressure_plates,
             &self.map,
             |tile| {
                 matches!(
@@ -358,44 +346,45 @@ impl WorldState {
                     Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
                 )
             },
-            &bounds,
+            all_bounds,
         );
 
         // Update boulder positions
-        self.boulder_info
-            .update(seen_boulders, &self.map, |pos| self.player_pos.is_adjacent(pos));
+        self.boulders.update(seen_items.boulders, &self.map, |pos| {
+            self.players.iter().any(|p| p.position.is_adjacent(pos))
+        });
 
         // Update sword positions using ItemTracker
-        self.swords
-            .update(seen_swords, &self.map, |tile| matches!(tile, Tile::Sword), &bounds);
+        self.swords.update(
+            seen_items.swords,
+            &self.map,
+            |tile| matches!(tile, Tile::Sword),
+            all_bounds,
+        );
 
         // Update health positions using ItemTracker
-        self.health
-            .update(seen_health, &self.map, |tile| matches!(tile, Tile::Health), &bounds);
+        self.health.update(
+            seen_items.health,
+            &self.map,
+            |tile| matches!(tile, Tile::Health),
+            all_bounds,
+        );
 
         // Update enemy positions using ItemTracker
-        self.enemies
-            .update(seen_enemies, &self.map, |tile| matches!(tile, Tile::Enemy), &bounds);
-    }
-
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn update_frontier(&mut self) {
-        // Compute reachable frontier positions in a single pass
-        // This replaces the old two-step process of:
-        // 1. Finding all candidates (neighbors of known tiles that are Unknown/None)
-        // 2. Filtering by reachability
-        self.unexplored_frontier =
-            crate::pathfinding::AStar::compute_reachable_positions(self, self.player_pos);
-
-        tracing::trace!(frontier_size = self.unexplored_frontier.len(), "Frontier updated");
+        self.enemies.update(
+            seen_items.enemies,
+            &self.map,
+            |tile| matches!(tile, Tile::Enemy),
+            all_bounds,
+        );
     }
 
     #[tracing::instrument(level = "trace", skip(self), fields(pos_x = pos.x, pos_y = pos.y))]
-    fn check_dropped_boulder(&mut self, pos: Pos) {
+    fn check_dropped_boulder(&mut self, pos: Position) {
         // Check for dropped boulder BEFORE updating the map
         // If we see a boulder in a location that was empty and adjacent to us, we dropped it
         // Note: if old_tile is None (never seen), the boulder is unexplored (not moved)
-        if self.player_pos.is_adjacent(&pos) {
+        if self.players.iter().any(|p| p.position.is_adjacent(&pos)) {
             let has_moved = match self.map.get(&pos) {
                 Some(Tile::Empty)
                 | Some(Tile::Player)
@@ -416,43 +405,13 @@ impl WorldState {
             };
 
             // Add or update boulder in our tracking
-            if !self.boulder_info.contains(&pos) {
-                self.boulder_info.add_boulder(pos, has_moved);
+            if !self.boulders.contains(&pos) {
+                self.boulders.add_boulder(pos, has_moved);
             }
         }
     }
 
-    pub fn is_walkable(&self, pos: &Pos, can_open_doors: bool, avoid_keys: bool) -> bool {
-        match self.map.get(pos) {
-            Some(
-                Tile::Empty
-                | Tile::Exit
-                | Tile::Player
-                | Tile::Sword
-                | Tile::Health
-                | Tile::PressurePlateRed
-                | Tile::PressurePlateGreen
-                | Tile::PressurePlateBlue
-                | Tile::Treasure
-                | Tile::Unknown, // Fog of war - assume walkable
-            ) => true,
-            // Keys: avoid during exploration unless specifically going to get one
-            Some(Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue) => {
-                if avoid_keys {
-                    false
-                } else {
-                    self.player_inventory == Inventory::None
-                }
-            }
-            Some(Tile::DoorRed) => can_open_doors && self.has_key(Color::Red),
-            Some(Tile::DoorGreen) => can_open_doors && self.has_key(Color::Green),
-            Some(Tile::DoorBlue) => can_open_doors && self.has_key(Color::Blue),
-            None => true, // Never seen tiles - assume walkable
-            _ => false,
-        }
-    }
-
-    pub fn is_walkable_with_goal(&self, pos: &Pos, goal: Pos) -> bool {
+    pub fn is_walkable(&self, player: &PlayerState, pos: &Position, goal: Position, can_open_doors: bool) -> bool {
         match self.map.get(pos) {
             Some(
                 Tile::Empty
@@ -471,16 +430,18 @@ impl WorldState {
                 // Allow walking on the destination key, avoid all others
                 *pos == goal
             }
-            // Doors: only walkable if it's the destination (never walk through doors)
-            Some(Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue) => *pos == goal,
+            // Doors: walkable if it's the destination OR if we can open doors and have the key
+            Some(Tile::DoorRed) => *pos == goal || (can_open_doors && self.has_key(player, Color::Red)),
+            Some(Tile::DoorGreen) => *pos == goal || (can_open_doors && self.has_key(player, Color::Green)),
+            Some(Tile::DoorBlue) => *pos == goal || (can_open_doors && self.has_key(player, Color::Blue)),
             None => true, // Never seen tiles - assume walkable
             _ => false,
         }
     }
 
     /// Compute which pressure plates currently have boulders on them
-    fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Pos>> {
-        let mut result: HashMap<Color, Vec<Pos>> = HashMap::new();
+    pub fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Position>> {
+        let mut result: HashMap<Color, Vec<Position>> = HashMap::new();
 
         // Check each color's pressure plates to see if a boulder is on any of them
         for &color in &[Color::Red, Color::Green, Color::Blue] {
@@ -489,7 +450,7 @@ impl WorldState {
                     // Check if there's a boulder at this plate position
                     if let Some(tile) = self.map.get(&plate_pos)
                         && matches!(tile, Tile::Boulder)
-                        && self.boulder_info.contains(&plate_pos)
+                        && self.boulders.contains(&plate_pos)
                     {
                         result.entry(color).or_default().push(plate_pos);
                     }
@@ -500,10 +461,10 @@ impl WorldState {
         result
     }
 
-    pub fn has_key(&self, color: Color) -> bool {
+    pub fn has_key(&self, player: &PlayerState, color: Color) -> bool {
         // Check if we have the actual key in inventory
         let has_physical_key = matches!(
-            (self.player_inventory, color),
+            (player.inventory, color),
             (Inventory::KeyRed, Color::Red)
                 | (Inventory::KeyGreen, Color::Green)
                 | (Inventory::KeyBlue, Color::Blue)
@@ -518,40 +479,33 @@ impl WorldState {
         has_physical_key || has_boulder_on_plate
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    pub fn sorted_unexplored(&self) -> Vec<Pos> {
-        let mut frontier: Vec<Pos> = self.unexplored_frontier.iter().copied().collect();
-        frontier.sort_by_key(|pos| self.player_pos.distance(pos));
-        frontier
+    pub fn closest_enemy(&self, player: &PlayerState) -> Option<Position> {
+        self.enemies.closest_to(player.position)
     }
 
-    pub fn closest_enemy(&self) -> Option<Pos> {
-        self.enemies.closest_to(self.player_pos)
-    }
-
-    pub fn closest_health(&self) -> Option<Pos> {
-        self.health.closest_to(self.player_pos)
+    pub fn closest_health(&self, player: &PlayerState) -> Option<Position> {
+        self.health.closest_to(player.position)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub fn doors_without_keys(&self) -> Vec<Color> {
+    pub fn doors_without_keys(&self, player: &PlayerState) -> Vec<Color> {
         self.doors
             .colors()
-            .filter(|color| !self.has_key(**color))
+            .filter(|color| !self.has_key(player, **color))
             .copied()
             .collect()
     }
 
-    pub fn closest_door_of_color(&self, color: Color) -> Option<Pos> {
-        self.doors.closest_to(color, self.player_pos)
+    pub fn closest_door_of_color(&self, player: &PlayerState, color: Color) -> Option<Position> {
+        self.doors.closest_to(color, player.position)
     }
 
     pub fn knows_key_location(&self, color: Color) -> bool {
         self.keys.has_color(color)
     }
 
-    pub fn closest_key(&self, color: Color) -> Option<Pos> {
-        self.keys.closest_to(color, self.player_pos)
+    pub fn closest_key(&self, player: &PlayerState, color: Color) -> Option<Position> {
+        self.keys.closest_to(color, player.position)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
@@ -579,16 +533,20 @@ impl WorldState {
         const FRONTIER: &str = "\x1b[96m"; // Bright cyan
         const UNKNOWN: &str = "\x1b[90m"; // Dark gray
 
-        for y in 0..self.map_height {
-            for x in 0..self.map_width {
-                let pos = Pos::new(x, y);
+        for y in 0..self.map.height {
+            for x in 0..self.map.width {
+                let pos = Position::new(x, y);
 
                 // Check if this is the player position
-                if pos == self.player_pos {
-                    output.push_str(&format!("{}@{}", PLAYER, RESET));
-                } else if Some(pos) == self.player2_pos {
+                if self.players.first().is_some_and(|p| pos == p.position) {
+                    output.push_str(&format!("{}1{}", PLAYER, RESET));
+                } else if self.players.get(1).is_some_and(|p| pos == p.position) {
                     output.push_str(&format!("{}2{}", PLAYER2, RESET));
-                } else if self.unexplored_frontier.contains(&pos) {
+                } else if self
+                    .players
+                    .first()
+                    .is_some_and(|p| p.unexplored_frontier.contains(&pos))
+                {
                     // Show unexplored frontier
                     output.push_str(&format!("{}░{}", FRONTIER, RESET));
                 } else {
@@ -607,7 +565,7 @@ impl WorldState {
                         Some(Tile::Enemy) => format!("{}e{}", ENEMY, RESET),
                         Some(Tile::Boulder) => {
                             // Show moved boulders in explored color, unmoved boulders in frontier color
-                            if self.boulder_info.has_moved(&pos) {
+                            if self.boulders.has_moved(&pos) {
                                 format!("{}o{}", BOULDER_EXPLORED, RESET)
                             } else {
                                 format!("{}O{}", FRONTIER, RESET)

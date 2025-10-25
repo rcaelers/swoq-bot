@@ -1,10 +1,12 @@
-use crate::world_state::{Pos, WorldState};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
+use crate::map::Map;
+use crate::types::Position;
+
 #[derive(Clone, Eq, PartialEq)]
 struct Node {
-    pos: Pos,
+    pos: Position,
     f_score: i32,
 }
 
@@ -23,17 +25,20 @@ impl PartialOrd for Node {
 pub struct AStar;
 
 impl AStar {
-    #[tracing::instrument(level = "trace", skip(world), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
-    pub fn find_path(
-        world: &WorldState,
-        start: Pos,
-        goal: Pos,
-        can_open_doors: bool,
-    ) -> Option<Vec<Pos>> {
+    #[tracing::instrument(level = "trace", skip(map, is_walkable), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
+    pub fn find_path<F>(
+        map: &Map,
+        start: Position,
+        goal: Position,
+        is_walkable: F,
+    ) -> Option<Vec<Position>>
+    where
+        F: Fn(&Position, Position) -> bool,
+    {
         let mut open_set = BinaryHeap::new();
-        let mut came_from: HashMap<Pos, Pos> = HashMap::new();
-        let mut g_score: HashMap<Pos, i32> = HashMap::new();
-        let mut closed_set: HashSet<Pos> = HashSet::new();
+        let mut came_from: HashMap<Position, Position> = HashMap::new();
+        let mut g_score: HashMap<Position, i32> = HashMap::new();
+        let mut closed_set: HashSet<Position> = HashSet::new();
 
         g_score.insert(start, 0);
         open_set.push(Node {
@@ -70,15 +75,14 @@ impl AStar {
 
                 // Check if neighbor is within bounds
                 if neighbor.x < 0
-                    || neighbor.x >= world.map_width
+                    || neighbor.x >= map.width
                     || neighbor.y < 0
-                    || neighbor.y >= world.map_height
+                    || neighbor.y >= map.height
                 {
                     continue;
                 }
 
-                // Pass the goal to is_walkable so we can walk on the destination key
-                if !world.is_walkable_with_goal(&neighbor, goal) {
+                if !is_walkable(&neighbor, goal) {
                     continue;
                 }
 
@@ -99,12 +103,19 @@ impl AStar {
         None
     }
 
-    /// Compute all reachable positions from start using optimistic assumptions
-    /// (treating Unknown/None as walkable). Returns a HashSet of reachable frontier positions
+    /// Compute all reachable positions from start using a walkability checker.
+    /// Returns a HashSet of reachable frontier positions
     /// (positions that are Unknown or None and adjacent to explored/known tiles).
     /// This combines reachability checking with frontier detection in a single pass.
-    #[tracing::instrument(level = "trace", skip(world), fields(start_x = start.x, start_y = start.y))]
-    pub fn compute_reachable_positions(world: &WorldState, start: Pos) -> HashSet<Pos> {
+    #[tracing::instrument(level = "trace", skip(map, is_walkable), fields(start_x = start.x, start_y = start.y))]
+    pub fn compute_reachable_positions<F>(
+        map: &Map,
+        start: Position,
+        is_walkable: F,
+    ) -> HashSet<Position>
+    where
+        F: Fn(&Position) -> bool,
+    {
         let mut reachable = HashSet::new();
         let mut frontier = HashSet::new();
         let mut queue = std::collections::VecDeque::new();
@@ -121,37 +132,19 @@ impl AStar {
 
                 // Check bounds
                 if neighbor.x < 0
-                    || neighbor.x >= world.map_width
+                    || neighbor.x >= map.width
                     || neighbor.y < 0
-                    || neighbor.y >= world.map_height
+                    || neighbor.y >= map.height
                 {
                     continue;
                 }
 
                 // Check if this is an unexplored tile (frontier candidate)
-                let is_unexplored = matches!(
-                    world.map.get(&neighbor),
-                    Some(crate::swoq_interface::Tile::Unknown) | None
-                );
+                let is_unexplored =
+                    matches!(map.get(&neighbor), Some(crate::swoq_interface::Tile::Unknown) | None);
 
-                // Optimistic walkability: treat Unknown and None as walkable
-                let walkable = match world.map.get(&neighbor) {
-                    Some(crate::swoq_interface::Tile::Wall)
-                    | Some(crate::swoq_interface::Tile::Boulder)
-                    | Some(crate::swoq_interface::Tile::Enemy) => false,
-                    // Doors without keys are barriers
-                    Some(crate::swoq_interface::Tile::DoorRed) => {
-                        world.has_key(crate::world_state::Color::Red)
-                    }
-                    Some(crate::swoq_interface::Tile::DoorGreen) => {
-                        world.has_key(crate::world_state::Color::Green)
-                    }
-                    Some(crate::swoq_interface::Tile::DoorBlue) => {
-                        world.has_key(crate::world_state::Color::Blue)
-                    }
-                    // Unknown and None are optimistically walkable
-                    _ => true,
-                };
+                // Use the provided walkability checker
+                let walkable = is_walkable(&neighbor);
 
                 if walkable {
                     reachable.insert(neighbor);
@@ -161,7 +154,7 @@ impl AStar {
                     // it's part of the frontier
                     if is_unexplored {
                         // Check if current position is explored (not Unknown/None)
-                        let current_is_explored = match world.map.get(&current) {
+                        let current_is_explored = match map.get(&current) {
                             Some(crate::swoq_interface::Tile::Unknown) | None => false,
                             Some(_) => true,
                         };
@@ -183,11 +176,14 @@ impl AStar {
     }
 }
 
-fn heuristic(a: Pos, b: Pos) -> i32 {
+fn heuristic(a: Position, b: Position) -> i32 {
     a.distance(&b)
 }
 
-fn reconstruct_path(came_from: &HashMap<Pos, Pos>, mut current: Pos) -> Vec<Pos> {
+fn reconstruct_path(
+    came_from: &HashMap<Position, Position>,
+    mut current: Position,
+) -> Vec<Position> {
     let mut path = vec![current];
     while let Some(&prev) = came_from.get(&current) {
         path.push(prev);

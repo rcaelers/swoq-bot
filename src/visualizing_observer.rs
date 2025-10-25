@@ -1,9 +1,10 @@
+use std::sync::{Arc, Mutex, mpsc};
+
 use crate::game_observer::GameObserver;
 use crate::goal::Goal;
 use crate::swoq_interface::{DirectedAction, GameStatus, State};
 use crate::visualizer::{LogColor, LogMessage};
 use crate::world_state::WorldState;
-use std::sync::{Arc, Mutex, mpsc};
 
 pub struct VisualizingObserver {
     shared_state: Arc<Mutex<Option<WorldState>>>,
@@ -71,9 +72,9 @@ impl GameObserver for VisualizingObserver {
             "Level {}, Tick {}: Health={}, Position=({}, {})",
             world.level,
             world.tick,
-            world.player_health,
-            world.player_pos.x,
-            world.player_pos.y
+            world.player().health,
+            world.player().position.x,
+            world.player().position.y
         );
 
         // Draw the ASCII map to stdout to preserve colors
@@ -94,8 +95,8 @@ impl GameObserver for VisualizingObserver {
         tracing::debug!(
             "Action selected: {:?} at ({}, {})",
             action,
-            world.player_pos.x,
-            world.player_pos.y
+            world.player().position.x,
+            world.player().position.y
         );
     }
 

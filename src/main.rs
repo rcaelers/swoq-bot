@@ -7,20 +7,24 @@ mod game;
 mod game_observer;
 mod goal;
 mod item_tracker;
+mod map;
 mod pathfinding;
+mod player_state;
 mod strategy;
 mod swoq;
+mod types;
 mod visualizer;
 mod visualizing_observer;
 mod world_state;
 
-use default_observer::DefaultObserver;
 use dotenv::dotenv;
-use game::Game;
 use std::env;
 use std::sync::{Arc, Mutex, mpsc};
-use swoq::GameConnection;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
+
+use default_observer::DefaultObserver;
+use game::Game;
+use swoq::GameConnection;
 use visualizer::run_visualizer;
 use visualizing_observer::VisualizingObserver;
 use world_state::WorldState;

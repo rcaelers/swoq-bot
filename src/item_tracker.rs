@@ -1,11 +1,13 @@
-use crate::swoq_interface::Tile;
-use crate::world_state::{Bounds, Color, Pos};
 use std::collections::HashMap;
+
+use crate::map::Map;
+use crate::swoq_interface::Tile;
+use crate::types::{Bounds, Color, Position};
 
 /// Generic tracker for simple items (non-colored)
 #[derive(Clone, Debug)]
 pub struct ItemTracker {
-    positions: Vec<Pos>,
+    positions: Vec<Position>,
 }
 
 impl ItemTracker {
@@ -16,14 +18,14 @@ impl ItemTracker {
     }
 
     /// Update positions: merge newly seen items, deduplicate, and remove items that are gone
-    /// Only validates items within the visibility bounds
-    #[tracing::instrument(level = "trace", skip(self, map, validator, visibility_bounds), fields(seen_count = seen_items.len()))]
+    /// Only validates items within any of the visibility bounds
+    #[tracing::instrument(level = "trace", skip(self, map, validator, all_visibility_bounds), fields(seen_count = seen_items.len()))]
     pub fn update<F>(
         &mut self,
-        seen_items: Vec<Pos>,
-        map: &HashMap<Pos, Tile>,
+        seen_items: Vec<Position>,
+        map: &Map,
         validator: F,
-        visibility_bounds: &Bounds,
+        all_visibility_bounds: &[Bounds],
     ) where
         F: Fn(&Tile) -> bool,
     {
@@ -31,7 +33,7 @@ impl ItemTracker {
         self.positions.extend(seen_items);
 
         // Remove duplicates manually
-        let mut unique_positions: Vec<Pos> = Vec::new();
+        let mut unique_positions: Vec<Position> = Vec::new();
         for &pos in self.positions.iter() {
             if !unique_positions.contains(&pos) {
                 unique_positions.push(pos);
@@ -40,27 +42,30 @@ impl ItemTracker {
         self.positions = unique_positions;
 
         // Remove items that have been consumed or destroyed
-        // Only check items within visibility range
+        // Only check items within any player's visibility range
         self.positions.retain(|pos| {
-            if visibility_bounds.contains(pos) {
-                // We can see this position, so check if item is still there
+            let is_visible = all_visibility_bounds
+                .iter()
+                .any(|bounds| bounds.contains(pos));
+            if is_visible {
+                // We can see this position (by at least one player), so check if item is still there
                 if let Some(tile) = map.get(pos) {
                     validator(tile)
                 } else {
                     true // Keep if we haven't seen this position
                 }
             } else {
-                // Out of visibility range - keep the item (items don't move/disappear when not visible)
+                // Out of all visibility ranges - keep the item (items don't move/disappear when not visible)
                 true
             }
         });
     }
 
-    pub fn get_positions(&self) -> &[Pos] {
+    pub fn get_positions(&self) -> &[Position] {
         &self.positions
     }
 
-    pub fn closest_to(&self, reference: Pos) -> Option<Pos> {
+    pub fn closest_to(&self, reference: Position) -> Option<Position> {
         self.positions
             .iter()
             .min_by_key(|pos| reference.distance(pos))
@@ -85,7 +90,7 @@ impl Default for ItemTracker {
 /// Generic tracker for colored items (keys, doors, pressure plates)
 #[derive(Clone, Debug)]
 pub struct ColoredItemTracker {
-    positions: HashMap<Color, Vec<Pos>>,
+    positions: HashMap<Color, Vec<Position>>,
 }
 
 impl ColoredItemTracker {
@@ -96,14 +101,14 @@ impl ColoredItemTracker {
     }
 
     /// Update positions for a specific color: merge newly seen items, deduplicate, and remove items that are gone
-    /// Only validates items within the visibility bounds
-    #[tracing::instrument(level = "trace", skip(self, map, validator, visibility_bounds))]
+    /// Only validates items within any of the visibility bounds
+    #[tracing::instrument(level = "trace", skip(self, map, validator, all_visibility_bounds))]
     pub fn update<F>(
         &mut self,
-        seen_items: HashMap<Color, Vec<Pos>>,
-        map: &HashMap<Pos, Tile>,
+        seen_items: HashMap<Color, Vec<Position>>,
+        map: &Map,
         validator: F,
-        visibility_bounds: &Bounds,
+        all_visibility_bounds: &[Bounds],
     ) where
         F: Fn(&Tile) -> bool,
     {
@@ -118,7 +123,7 @@ impl ColoredItemTracker {
         // Deduplicate and remove consumed items for each color
         for positions in self.positions.values_mut() {
             // Remove duplicates manually
-            let mut unique_positions: Vec<Pos> = Vec::new();
+            let mut unique_positions: Vec<Position> = Vec::new();
             for &pos in positions.iter() {
                 if !unique_positions.contains(&pos) {
                     unique_positions.push(pos);
@@ -127,24 +132,27 @@ impl ColoredItemTracker {
             *positions = unique_positions;
 
             // Remove items that have been consumed or opened
-            // Only check items within visibility range
+            // Only check items within any player's visibility range
             positions.retain(|pos| {
-                if visibility_bounds.contains(pos) {
-                    // We can see this position, so check if item is still there
+                let is_visible = all_visibility_bounds
+                    .iter()
+                    .any(|bounds| bounds.contains(pos));
+                if is_visible {
+                    // We can see this position (by at least one player), so check if item is still there
                     if let Some(tile) = map.get(pos) {
                         validator(tile)
                     } else {
                         true // Keep if we haven't seen this position
                     }
                 } else {
-                    // Out of visibility range - keep the item (items don't move/disappear when not visible)
+                    // Out of all visibility ranges - keep the item (items don't move/disappear when not visible)
                     true
                 }
             });
         }
     }
 
-    pub fn get_positions(&self, color: Color) -> Option<&[Pos]> {
+    pub fn get_positions(&self, color: Color) -> Option<&[Position]> {
         self.positions.get(&color).map(|v| v.as_slice())
     }
 
@@ -154,7 +162,7 @@ impl ColoredItemTracker {
             .is_some_and(|positions| !positions.is_empty())
     }
 
-    pub fn closest_to(&self, color: Color, reference: Pos) -> Option<Pos> {
+    pub fn closest_to(&self, color: Color, reference: Position) -> Option<Position> {
         self.positions.get(&color).and_then(|positions| {
             positions
                 .iter()

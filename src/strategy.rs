@@ -1,8 +1,10 @@
+use tracing::debug;
+
 use crate::goal::Goal;
 use crate::pathfinding::AStar;
 use crate::swoq_interface::DirectedAction;
-use crate::world_state::{Color, WorldState};
-use tracing::debug;
+use crate::types::{Color, Position};
+    use crate::world_state::WorldState;
 
 pub trait SelectGoal {
     fn try_select(&self, world: &WorldState) -> Option<Goal>;
@@ -14,12 +16,12 @@ impl Planner {
     #[tracing::instrument(level = "debug", skip(world))]
     pub fn decide_action(world: &mut WorldState) -> (Goal, DirectedAction) {
         // Check if we've reached the current destination
-        if let Some(dest) = world.current_destination
-            && world.player_pos == dest
+        if let Some(dest) = world.player_mut().current_destination
+            && world.player().position == dest
         {
             // Reached destination - clear it to select a new goal
-            world.current_destination = None;
-            world.previous_goal = None;
+            world.player_mut().current_destination = None;
+            world.player_mut().previous_goal = None;
         }
 
         println!("\n┌────────────────────────────────────────────────────────────┐");
@@ -29,18 +31,23 @@ impl Planner {
         let goal = Self::select_goal(world);
 
         // Check if goal has changed - if not, keep same destination to avoid oscillation
-        let goal_changed = world.previous_goal.as_ref() != Some(&goal);
+        let goal_changed = world.player_mut().previous_goal.as_ref() != Some(&goal);
         if goal_changed {
-            world.current_destination = None;
-            world.previous_goal = Some(goal.clone());
+            world.player_mut().current_destination = None;
+            world.player_mut().previous_goal = Some(goal.clone());
         }
 
+        let frontier_size = world.player().unexplored_frontier.len();
+        let player_pos = world.player().position;
+        let player_tile = world.map.get(&player_pos);
+        let current_dest = world.player().current_destination;
+        
         println!(
             "  Goal: {:?}, frontier size: {}, player tile: {:?}, dest: {:?}",
             goal,
-            world.unexplored_frontier.len(),
-            world.map.get(&world.player_pos),
-            world.current_destination
+            frontier_size,
+            player_tile,
+            current_dest
         );
 
         println!("\n┌────────────────────────────────────────────────────────────┐");
@@ -100,17 +107,17 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
             return None;
         }
 
-        let enemy_pos = world.closest_enemy()?;
-        let dist = world.player_pos.distance(&enemy_pos);
+        let enemy_pos = world.closest_enemy(world.player())?;
+        let dist = world.player().position.distance(&enemy_pos);
 
         // If we have a sword and enemy is close (adjacent or 2 tiles away), attack it
-        if world.player_has_sword && dist <= 2 {
+        if world.player().has_sword && dist <= 2 {
             debug!("(have sword, enemy within {} tiles)", dist);
             return Some(Goal::KillEnemy(enemy_pos));
         }
 
         // If we don't have sword and enemy is dangerously close, flee
-        if dist <= 3 && !world.player_has_sword {
+        if dist <= 3 && !world.player().has_sword {
             return Some(Goal::AvoidEnemy(enemy_pos));
         }
 
@@ -129,7 +136,7 @@ impl SelectGoal for PickupHealthStrategy {
             .enemies
             .get_positions()
             .iter()
-            .any(|&enemy_pos| world.player_pos.distance(&enemy_pos) <= 5);
+            .any(|&enemy_pos| world.player().position.distance(&enemy_pos) <= 5);
 
         if !enemy_nearby {
             debug!("(health found, no enemies nearby)");
@@ -143,7 +150,7 @@ impl SelectGoal for PickupHealthStrategy {
 
 impl SelectGoal for PickupSwordStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        if world.level >= 10 && !world.player_has_sword && !world.swords.is_empty() {
+        if world.level >= 10 && !world.player().has_sword && !world.swords.is_empty() {
             Some(Goal::PickupSword)
         } else {
             None
@@ -153,7 +160,8 @@ impl SelectGoal for PickupSwordStrategy {
 
 impl SelectGoal for DropBoulderOnPlateStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        if world.level < 6 || world.player_inventory != crate::swoq_interface::Inventory::Boulder {
+        if world.level < 6 || world.player().inventory != crate::swoq_interface::Inventory::Boulder
+        {
             return None;
         }
 
@@ -165,8 +173,14 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
                 && let Some(&plate_pos) = plates.first()
             {
                 // Check if we can reach the plate
-                if world.player_pos.is_adjacent(&plate_pos)
-                    || AStar::find_path(world, world.player_pos, plate_pos, true).is_some()
+                if world.player().position.is_adjacent(&plate_pos)
+                    || AStar::find_path(
+                        &world.map,
+                        world.player().position,
+                        plate_pos,
+                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
+                    )
+                    .is_some()
                 {
                     debug!("Found reachable {:?} pressure plate at {:?}", color, plate_pos);
                     return Some(Goal::DropBoulderOnPlate(color, plate_pos));
@@ -185,7 +199,7 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
         // Check if we can use pressure plates to open doors (prefer keys over plates)
         for color in [Color::Red, Color::Green, Color::Blue] {
             // Skip if we have a key for this color
-            if world.has_key(color) {
+            if world.has_key(world.player(), color) {
                 continue;
             }
 
@@ -199,8 +213,14 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
                 // Check each pressure plate to see if we can stand on it
                 for &plate_pos in plates {
                     // Can we reach the plate?
-                    if !world.player_pos.is_adjacent(&plate_pos)
-                        && AStar::find_path(world, world.player_pos, plate_pos, false).is_none()
+                    if !world.player().position.is_adjacent(&plate_pos)
+                        && AStar::find_path(
+                            &world.map,
+                            world.player().position,
+                            plate_pos,
+                            |pos, goal| world.is_walkable(world.player(), pos, goal, false),
+                        )
+                        .is_none()
                     {
                         continue;
                     }
@@ -226,13 +246,19 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
 impl SelectGoal for OpenDoorWithKeyStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         for &color in world.doors.colors() {
-            if world.has_key(color) {
-                let door_pos = world.closest_door_of_color(color)?;
+            if world.has_key(world.player(), color) {
+                let door_pos = world.closest_door_of_color(world.player(), color)?;
                 debug!("We have key for {:?}, door at {:?}", color, door_pos);
 
                 // Check if door is reachable (can path through doors we have keys for)
-                if world.player_pos.is_adjacent(&door_pos)
-                    || AStar::find_path(world, world.player_pos, door_pos, true).is_some()
+                if world.player().position.is_adjacent(&door_pos)
+                    || AStar::find_path(
+                        &world.map,
+                        world.player().position,
+                        door_pos,
+                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
+                    )
+                    .is_some()
                 {
                     debug!("(we have the key, door is reachable)");
                     return Some(Goal::OpenDoor(color));
@@ -248,7 +274,7 @@ impl SelectGoal for OpenDoorWithKeyStrategy {
 
 impl SelectGoal for GetKeyForDoorStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        for color in world.doors_without_keys() {
+        for color in world.doors_without_keys(world.player()) {
             debug!("Checking door without key: {:?}", color);
 
             // If we know where the key is and can reach it, go get it
@@ -258,11 +284,18 @@ impl SelectGoal for GetKeyForDoorStrategy {
                 world.knows_key_location(color)
             );
             if world.knows_key_location(color) {
-                if let Some(key_pos) = world.closest_key(color) {
+                if let Some(key_pos) = world.closest_key(world.player(), color) {
                     debug!("Closest key for {:?} is at {:?}", color, key_pos);
                     // Use can_open_doors=true to allow using keys we already have
                     // Use avoid_keys=true to not pick up other keys along the way
-                    if AStar::find_path(world, world.player_pos, key_pos, true).is_some() {
+                    if AStar::find_path(
+                        &world.map,
+                        world.player().position,
+                        key_pos,
+                        |pos, goal| world.is_walkable(world.player(), pos, goal, true),
+                    )
+                    .is_some()
+                    {
                         debug!("(key is reachable)");
                         return Some(Goal::GetKey(color));
                     } else {
@@ -280,16 +313,20 @@ impl SelectGoal for GetKeyForDoorStrategy {
 
 impl SelectGoal for ReachExitStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        let exit_pos = world.exit_pos?;
+        let exit_pos = world.exit_position?;
 
         // Check if we're carrying a boulder - must drop it before exiting
-        if world.player_inventory == crate::swoq_interface::Inventory::Boulder {
+        if world.player().inventory == crate::swoq_interface::Inventory::Boulder {
             debug!("Need to drop boulder before reaching exit");
             return Some(Goal::DropBoulder);
         }
 
         // Check if we can actually path to the exit
-        if AStar::find_path(world, world.player_pos, exit_pos, true).is_some() {
+        if AStar::find_path(&world.map, world.player().position, exit_pos, |pos, goal| {
+            world.is_walkable(world.player(), pos, goal, true)
+        })
+        .is_some()
+        {
             Some(Goal::ReachExit)
         } else {
             debug!("Exit at {:?} is not reachable, continuing exploration", exit_pos);
@@ -301,8 +338,8 @@ impl SelectGoal for ReachExitStrategy {
 impl SelectGoal for FetchBoulderForPlateStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         if world.level < 6
-            || world.boulder_info.is_empty()
-            || world.player_inventory != crate::swoq_interface::Inventory::None
+            || world.boulders.is_empty()
+            || world.player().inventory != crate::swoq_interface::Inventory::None
         {
             return None;
         }
@@ -319,16 +356,22 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
         debug!("Found pressure plates, looking for nearest boulder");
 
         // Find nearest reachable boulder
-        let mut nearest_boulder: Option<crate::world_state::Pos> = None;
+        let mut nearest_boulder: Option<Position> = None;
         let mut nearest_distance = i32::MAX;
 
-        for boulder_pos in world.boulder_info.get_all_positions() {
-            let dist = world.player_pos.distance(&boulder_pos);
+        for boulder_pos in world.boulders.get_all_positions() {
+            let dist = world.player().position.distance(&boulder_pos);
             if dist < nearest_distance {
                 // Check if we can reach an adjacent position to pick it up
                 let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                    world.is_walkable(&adj, true, true)
-                        && AStar::find_path(world, world.player_pos, adj, true).is_some()
+                    world.is_walkable(world.player(), &adj, adj, true)
+                        && AStar::find_path(
+                            &world.map,
+                            world.player().position,
+                            adj,
+                            |pos, goal| world.is_walkable(world.player(), pos, goal, true),
+                        )
+                        .is_some()
                 });
 
                 if can_reach {
@@ -350,28 +393,34 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
 impl SelectGoal for MoveUnexploredBoulderStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         if world.level < 6
-            || world.boulder_info.is_empty()
-            || world.player_inventory != crate::swoq_interface::Inventory::None
+            || world.boulders.is_empty()
+            || world.player().inventory != crate::swoq_interface::Inventory::None
         {
             return None;
         }
 
         debug!(
             "Checking {} boulders for unexplored ones (frontier size: {})",
-            world.boulder_info.len(),
-            world.unexplored_frontier.len()
+            world.boulders.len(),
+            world.player().unexplored_frontier.len()
         );
 
         // Check if any boulder is unexplored and reachable
-        for boulder_pos in world.boulder_info.get_original_boulders() {
+        for boulder_pos in world.boulders.get_original_boulders() {
             // Is the boulder unexplored (not moved by us)?
-            if !world.boulder_info.has_moved(&boulder_pos) {
+            if !world.boulders.has_moved(&boulder_pos) {
                 debug!("  Boulder at {:?} is unexplored", boulder_pos);
 
                 // Check if we can reach an adjacent position to pick it up
                 let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                    world.is_walkable(&adj, true, true)
-                        && AStar::find_path(world, world.player_pos, adj, true).is_some()
+                    world.is_walkable(world.player(), &adj, adj, true)
+                        && AStar::find_path(
+                            &world.map,
+                            world.player().position,
+                            adj,
+                            |pos, goal| world.is_walkable(world.player(), pos, goal, true),
+                        )
+                        .is_some()
                 });
 
                 if can_reach {
@@ -391,7 +440,7 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 impl SelectGoal for FallbackPressurePlateStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         // If nothing else to do and area is fully explored, step on any reachable pressure plate
-        if !world.unexplored_frontier.is_empty() {
+        if !world.player().unexplored_frontier.is_empty() {
             return None;
         }
 
@@ -400,8 +449,14 @@ impl SelectGoal for FallbackPressurePlateStrategy {
             if let Some(plates) = world.pressure_plates.get_positions(color) {
                 for &plate_pos in plates {
                     // Check if we can reach the plate
-                    if world.player_pos.is_adjacent(&plate_pos)
-                        || AStar::find_path(world, world.player_pos, plate_pos, false).is_some()
+                    if world.player().position.is_adjacent(&plate_pos)
+                        || AStar::find_path(
+                            &world.map,
+                            world.player().position,
+                            plate_pos,
+                            |pos, goal| world.is_walkable(world.player(), pos, goal, false),
+                        )
+                        .is_some()
                     {
                         debug!(
                             "Found reachable {:?} pressure plate at {:?} as fallback",
@@ -425,14 +480,14 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
         // 3. There are enemies present
         debug!(
             "HuntEnemyWithSwordStrategy check: has_sword={}, frontier_empty={}, enemies_present={} (count={})",
-            world.player_has_sword,
-            world.unexplored_frontier.is_empty(),
+            world.player().has_sword,
+            world.player().unexplored_frontier.is_empty(),
             !world.enemies.is_empty(),
             world.enemies.get_positions().len()
         );
 
-        if !world.player_has_sword
-            || !world.unexplored_frontier.is_empty()
+        if !world.player().has_sword
+            || !world.player().unexplored_frontier.is_empty()
             || world.enemies.is_empty()
         {
             return None;
@@ -441,7 +496,7 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
         debug!("Maze fully explored, have sword, hunting enemy (may drop key)");
 
         // Find the closest enemy
-        if let Some(enemy_pos) = world.closest_enemy() {
+        if let Some(enemy_pos) = world.closest_enemy(world.player()) {
             debug!("Hunting enemy at {:?}", enemy_pos);
             return Some(Goal::KillEnemy(enemy_pos));
         }

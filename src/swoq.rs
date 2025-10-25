@@ -1,7 +1,3 @@
-use crate::swoq_interface::game_service_client::GameServiceClient;
-use crate::swoq_interface::{
-    self, ActRequest, ActResponse, StartRequest, StartResponse, StartResult,
-};
 use prost::{Message, bytes::BytesMut};
 use std::convert::TryFrom;
 use std::error::Error;
@@ -11,6 +7,11 @@ use std::io::{self, Write};
 use std::path::Path;
 use time::{OffsetDateTime, format_description};
 use tonic::transport::Channel;
+
+use crate::swoq_interface::game_service_client::GameServiceClient;
+use crate::swoq_interface::{
+    self, ActRequest, ActResponse, StartRequest, StartResponse, StartResult,
+};
 
 #[derive(Debug)]
 pub enum SwoqError {
@@ -163,10 +164,8 @@ impl ReplayFile {
             .unwrap();
         let game_id = start_response.game_id.clone().unwrap();
 
-        let filename = Path::new(replays_folder).join(format!(
-            "{} - {} - {}.swoq",
-            start_request.user_name, date_time_str, game_id
-        ));
+        let filename = Path::new(replays_folder)
+            .join(format!("{} - {} - {}.swoq", start_request.user_name, date_time_str, game_id));
 
         if let Some(parent) = filename.parent()
             && !parent.exists()

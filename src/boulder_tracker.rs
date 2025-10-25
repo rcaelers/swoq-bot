@@ -1,23 +1,25 @@
-use crate::swoq_interface::Tile;
-use crate::world_state::Pos;
 use std::collections::HashMap;
 use tracing::debug;
 
+use crate::map::Map;
+use crate::swoq_interface::Tile;
+use crate::types::Position;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Boulder {
-    pub pos: Pos,
+    pub pos: Position,
     pub has_moved: bool,
 }
 
 impl Boulder {
-    pub fn new(pos: Pos, has_moved: bool) -> Self {
+    pub fn new(pos: Position, has_moved: bool) -> Self {
         Self { pos, has_moved }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct BoulderTracker {
-    boulders: HashMap<Pos, Boulder>,
+    boulders: HashMap<Position, Boulder>,
 }
 
 impl BoulderTracker {
@@ -27,19 +29,19 @@ impl BoulderTracker {
         }
     }
 
-    pub fn add_boulder(&mut self, pos: Pos, has_moved: bool) {
+    pub fn add_boulder(&mut self, pos: Position, has_moved: bool) {
         self.boulders.insert(pos, Boulder::new(pos, has_moved));
     }
 
-    pub fn remove_boulder(&mut self, pos: &Pos) -> Option<Boulder> {
+    pub fn remove_boulder(&mut self, pos: &Position) -> Option<Boulder> {
         self.boulders.remove(pos)
     }
 
-    pub fn get_all_positions(&self) -> Vec<Pos> {
+    pub fn get_all_positions(&self) -> Vec<Position> {
         self.boulders.keys().copied().collect()
     }
 
-    pub fn get_original_boulders(&self) -> Vec<Pos> {
+    pub fn get_original_boulders(&self) -> Vec<Position> {
         self.boulders
             .values()
             .filter(|b| !b.has_moved)
@@ -47,11 +49,11 @@ impl BoulderTracker {
             .collect()
     }
 
-    pub fn contains(&self, pos: &Pos) -> bool {
+    pub fn contains(&self, pos: &Position) -> bool {
         self.boulders.contains_key(pos)
     }
 
-    pub fn has_moved(&self, pos: &Pos) -> bool {
+    pub fn has_moved(&self, pos: &Position) -> bool {
         self.boulders.get(pos).map(|b| b.has_moved).unwrap_or(false)
     }
 
@@ -69,9 +71,9 @@ impl BoulderTracker {
 
     /// Update boulder positions based on newly seen boulders and current map state
     #[tracing::instrument(level = "trace", skip(self, map, is_adjacent), fields(seen_count = seen_boulders.len()))]
-    pub fn update<F>(&mut self, seen_boulders: Vec<Pos>, map: &HashMap<Pos, Tile>, is_adjacent: F)
+    pub fn update<F>(&mut self, seen_boulders: Vec<Position>, map: &Map, is_adjacent: F)
     where
-        F: Fn(&Pos) -> bool,
+        F: Fn(&Position) -> bool,
     {
         // Add newly seen boulders
         for boulder_pos in seen_boulders {
