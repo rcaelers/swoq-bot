@@ -79,6 +79,54 @@ impl GameObserver for VisualizingObserver {
 
         // Draw the ASCII map to stdout to preserve colors
         println!("\n{}", "─".repeat(60));
+        
+        // Line 1: Level and tick (left), Player 1 info (right)
+        let p1 = world.player();
+        let p1_goal = p1.previous_goal
+            .as_ref()
+            .map(|g| format!("{:?}", g))
+            .unwrap_or_else(|| "None".to_string());
+        
+        let p1_inv = if p1.has_sword {
+            format!("Sword+{:?}", p1.inventory)
+        } else {
+            format!("{:?}", p1.inventory)
+        };
+        
+        let p1_info = format!(
+            "P1  HP:{:<3}  Inv:{:<16}  Goal:{}",
+            p1.health,
+            p1_inv,
+            p1_goal
+        );
+        let left_side = format!("Level:{:<4} Tick:{:<6}", world.level, world.tick);
+        let total_width: usize = 60;
+        let spacing = total_width.saturating_sub(left_side.len() + p1_info.len());
+        println!("{}{}{}", left_side, " ".repeat(spacing), p1_info);
+        
+        // Line 2: Player 2 info (right aligned) if available
+        if world.players.len() > 1 {
+            let p2 = &world.players[1];
+            let p2_goal = p2.previous_goal
+                .as_ref()
+                .map(|g| format!("{:?}", g))
+                .unwrap_or_else(|| "None".to_string());
+            
+            let p2_inv = if p2.has_sword {
+                format!("Sword+{:?}", p2.inventory)
+            } else {
+                format!("{:?}", p2.inventory)
+            };
+            
+            let p2_info = format!(
+                "P2  HP:{:<3}  Inv:{:<16}  Goal:{}",
+                p2.health,
+                p2_inv,
+                p2_goal
+            );
+            println!("{:>60}", p2_info);
+        }
+        
         let map = world.draw_ascii_map();
         println!("{}", map);
         println!("{}", "─".repeat(60));

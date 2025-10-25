@@ -372,11 +372,11 @@ fn render_world_state(
         1.0
     };
 
-    // Position map at top-left with 20px margin
+    // Position map at top-left with 20px margin, but below the two header lines (60px)
     // Camera scaling affects world coordinates, so we multiply by camera scale
     // to convert screen pixels to world coordinates
     let center_x = (-(WINDOW_WIDTH / 2.0) + 20.0 + (TILE_SIZE / 2.0)) * camera_scale;
-    let center_y = ((WINDOW_HEIGHT / 2.0) - 20.0 - (TILE_SIZE / 2.0)) * camera_scale;
+    let center_y = ((WINDOW_HEIGHT / 2.0) - 60.0 - (TILE_SIZE / 2.0)) * camera_scale;
 
     // Render all known tiles
     for (pos, tile) in world_state.map.iter() {
@@ -483,22 +483,33 @@ fn render_world_state(
         MapEntity,
     ));
 
-    // Add text overlay with game info
+    // Add text overlay with game info - Line 1
+    let p1 = world_state.player();
+    let p1_goal = p1.previous_goal
+        .as_ref()
+        .map(|g| format!("{:?}", g))
+        .unwrap_or_else(|| "None".to_string());
+    
+    let p1_inv = if p1.has_sword {
+        format!("Sword+{:?}", p1.inventory)
+    } else {
+        format!("{:?}", p1.inventory)
+    };
+    
+    let line1_left = format!("Level:{:<4} Tick:{:<6}", world_state.level, world_state.tick);
+    let line1_right = format!(
+        "P1  HP:{:<3}  Inv:{:<16}  Goal:{}",
+        p1.health,
+        p1_inv,
+        p1_goal
+    );
+    let line1_text = format!("{:<28}{}", line1_left, line1_right);
+    
     commands.spawn((
-        Text::new(format!(
-            "Level: {} | Tick: {} | Health: {:?} | Sword: {} | Inventory: {:?}",
-            world_state.level,
-            world_state.tick,
-            world_state.player().health,
-            if world_state.player().has_sword {
-                "YES"
-            } else {
-                "NO"
-            },
-            world_state.player().inventory
-        )),
+        Text::new(line1_text),
         TextFont {
-            font_size: 20.0,
+            font_size: 18.0,
+            font: default(),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -510,6 +521,46 @@ fn render_world_state(
         },
         MapEntity,
     ));
+
+    // Add Line 2 for Player 2 if available
+    if world_state.players.len() > 1 {
+        let p2 = &world_state.players[1];
+        let p2_goal = p2.previous_goal
+            .as_ref()
+            .map(|g| format!("{:?}", g))
+            .unwrap_or_else(|| "None".to_string());
+        
+        let p2_inv = if p2.has_sword {
+            format!("Sword+{:?}", p2.inventory)
+        } else {
+            format!("{:?}", p2.inventory)
+        };
+        
+        let line2_text = format!(
+            "{:<28}P2  HP:{:<3}  Inv:{:<16}  Goal:{}",
+            "",
+            p2.health,
+            p2_inv,
+            p2_goal
+        );
+        
+        commands.spawn((
+            Text::new(line2_text),
+            TextFont {
+                font_size: 18.0,
+                font: default(),
+                ..default()
+            },
+            TextColor(Color::srgb(0.4, 0.8, 1.0)), // Cyan color for player 2
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(32.0),
+                left: Val::Px(10.0),
+                ..default()
+            },
+            MapEntity,
+        ));
+    }
 }
 
 fn update_log_pane(
