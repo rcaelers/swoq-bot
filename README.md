@@ -19,7 +19,7 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] AI strategies
 - [ ] Strategy improvements / bug fixes
   - [x] incorrect enemies present in HuntEnemyWithSwordStrategy
-  - [ ] Hang when trying to go through door
+  - [x] Hang when trying to go through door
   - [ ] flee enemy sometimes fails
   - [ ] Don't attack enemy if not needed
   - [ ] Enemy in range check should use pathfinder

@@ -125,7 +125,19 @@ impl ExecuteGoal for GetKeyGoal {
 impl ExecuteGoal for OpenDoorGoal {
     fn execute(&self, world: &mut WorldState) -> Option<DirectedAction> {
         let door_positions = world.doors.get_positions(self.0)?;
-        let door_pos = *door_positions.first()?;
+
+        // Find the closest reachable door (not just by distance)
+        let mut closest_door: Option<(Pos, usize)> = None;
+        for &door_pos in door_positions {
+            if let Some(path) = AStar::find_path(world, world.player_pos, door_pos, false) {
+                let path_len = path.len();
+                if closest_door.is_none() || path_len < closest_door.unwrap().1 {
+                    closest_door = Some((door_pos, path_len));
+                }
+            }
+        }
+
+        let door_pos = closest_door.map(|(pos, _)| pos)?;
 
         // OpenDoor is only for keys - if we don't have a key, this shouldn't be selected
         if !world.has_key(self.0) {
@@ -138,9 +150,9 @@ impl ExecuteGoal for OpenDoorGoal {
             return Some(use_direction(world.player_pos, door_pos));
         }
 
-        // Navigate to door (can open doors since we have keys)
+        // Navigate to door (cannot open doors in pathfinding - door is destination only)
         world.current_destination = Some(door_pos);
-        let path = AStar::find_path(world, world.player_pos, door_pos, true)?;
+        let path = AStar::find_path(world, world.player_pos, door_pos, false)?;
         world.current_path = Some(path.clone());
         path_to_action(world.player_pos, &path)
     }

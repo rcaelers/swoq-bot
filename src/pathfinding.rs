@@ -78,7 +78,7 @@ impl AStar {
                 }
 
                 // Pass the goal to is_walkable so we can walk on the destination key
-                if !world.is_walkable_with_goal(&neighbor, can_open_doors, goal) {
+                if !world.is_walkable_with_goal(&neighbor, goal) {
                     continue;
                 }
 

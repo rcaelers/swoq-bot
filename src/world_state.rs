@@ -452,7 +452,7 @@ impl WorldState {
         }
     }
 
-    pub fn is_walkable_with_goal(&self, pos: &Pos, can_open_doors: bool, goal: Pos) -> bool {
+    pub fn is_walkable_with_goal(&self, pos: &Pos, goal: Pos) -> bool {
         match self.map.get(pos) {
             Some(
                 Tile::Empty
@@ -471,9 +471,8 @@ impl WorldState {
                 // Allow walking on the destination key, avoid all others
                 *pos == goal
             }
-            Some(Tile::DoorRed) => can_open_doors && self.has_key(Color::Red),
-            Some(Tile::DoorGreen) => can_open_doors && self.has_key(Color::Green),
-            Some(Tile::DoorBlue) => can_open_doors && self.has_key(Color::Blue),
+            // Doors: only walkable if it's the destination (never walk through doors)
+            Some(Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue) => *pos == goal,
             None => true, // Never seen tiles - assume walkable
             _ => false,
         }
