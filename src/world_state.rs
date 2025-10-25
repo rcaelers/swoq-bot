@@ -1,3 +1,4 @@
+use crate::boulder_info::BoulderInfo;
 use crate::swoq_interface::{Inventory, State, Tile};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -66,7 +67,7 @@ pub struct WorldState {
     pub key_positions: HashMap<Color, Vec<Pos>>,
     pub door_positions: HashMap<Color, Vec<Pos>>,
     pub enemy_positions: Vec<Pos>,
-    pub boulder_positions: Vec<Pos>,
+    pub boulder_info: BoulderInfo,
     pub sword_positions: Vec<Pos>,
     pub health_positions: Vec<Pos>,
     pub pressure_plate_positions: HashMap<Color, Vec<Pos>>,
@@ -81,9 +82,6 @@ pub struct WorldState {
     pub previous_goal: Option<crate::goal::Goal>,
     pub current_destination: Option<Pos>,
     pub current_path: Option<Vec<Pos>>,
-
-    // Track positions where we've dropped boulders (these are explored)
-    pub dropped_boulder_positions: HashSet<Pos>,
 }
 
 impl WorldState {
@@ -107,7 +105,7 @@ impl WorldState {
             key_positions: HashMap::new(),
             door_positions: HashMap::new(),
             enemy_positions: Vec::new(),
-            boulder_positions: Vec::new(),
+            boulder_info: BoulderInfo::new(),
             sword_positions: Vec::new(),
             health_positions: Vec::new(),
             pressure_plate_positions: HashMap::new(),
@@ -119,7 +117,6 @@ impl WorldState {
             previous_goal: None,
             current_destination: None,
             current_path: None,
-            dropped_boulder_positions: HashSet::new(),
         }
     }
 
@@ -165,7 +162,7 @@ impl WorldState {
         self.key_positions.clear();
         self.door_positions.clear();
         self.enemy_positions.clear();
-        self.boulder_positions.clear();
+        self.boulder_info.clear();
         self.sword_positions.clear();
         self.health_positions.clear();
         self.pressure_plate_positions.clear();
@@ -187,7 +184,6 @@ impl WorldState {
         self.previous_goal = None;
         self.current_destination = None;
         self.current_path = None;
-        self.dropped_boulder_positions.clear();
     }
 
     fn integrate_surroundings(&mut self, surroundings: &[i32], center: Pos) {
@@ -287,30 +283,8 @@ impl WorldState {
                 };
 
                 // Check for dropped boulder BEFORE updating the map
-                // If we see a boulder in a location that was empty and adjacent to us, we dropped it
-                // Note: if old_tile is None (never seen), the boulder is unexplored (original position)
-                if tile == Tile::Boulder && self.player_pos.is_adjacent(&pos) {
-                    match self.map.get(&pos) {
-                        Some(Tile::Empty)
-                        | Some(Tile::Player)
-                        | Some(
-                            Tile::PressurePlateRed
-                            | Tile::PressurePlateGreen
-                            | Tile::PressurePlateBlue,
-                        ) => {
-                            debug!(
-                                "Marking boulder position {:?} as explored (we dropped it)",
-                                pos
-                            );
-                            self.dropped_boulder_positions.insert(pos);
-                        }
-                        None => {
-                            // Boulder in a never-seen location - it's unexplored (original position)
-                        }
-                        _ => {
-                            // Boulder replacing something else - likely not a drop
-                        }
-                    }
+                if tile == Tile::Boulder {
+                    self.check_dropped_boulder(pos);
                 }
 
                 // Check if this boulder is covering a pressure plate (before updating the map)
@@ -519,24 +493,8 @@ impl WorldState {
             }
         }
 
-        // Update boulder positions: merge newly seen boulders with previously known ones
-        self.boulder_positions.extend(seen_boulders);
-        // Remove duplicates
-        let mut unique_boulders: Vec<Pos> = Vec::new();
-        for &pos in self.boulder_positions.iter() {
-            if !unique_boulders.contains(&pos) {
-                unique_boulders.push(pos);
-            }
-        }
-        self.boulder_positions = unique_boulders;
-        // Remove boulders that have been picked up (turned to Empty)
-        self.boulder_positions.retain(|pos| {
-            if let Some(tile) = self.map.get(pos) {
-                matches!(tile, Tile::Boulder)
-            } else {
-                true // Keep if we haven't seen this position
-            }
-        });
+        // Update boulder positions
+        self.update_boulder_positions(seen_boulders);
 
         // Update sword positions similarly
         self.sword_positions.extend(seen_swords);
@@ -634,6 +592,59 @@ impl WorldState {
             crate::pathfinding::AStar::compute_reachable_positions(self, self.player_pos);
 
         debug!("Frontier size: {}", self.unexplored_frontier.len());
+    }
+
+    fn check_dropped_boulder(&mut self, pos: Pos) {
+        // Check for dropped boulder BEFORE updating the map
+        // If we see a boulder in a location that was empty and adjacent to us, we dropped it
+        // Note: if old_tile is None (never seen), the boulder is unexplored (not moved)
+        if self.player_pos.is_adjacent(&pos) {
+            let has_moved = match self.map.get(&pos) {
+                Some(Tile::Empty)
+                | Some(Tile::Player)
+                | Some(
+                    Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue,
+                ) => {
+                    debug!("Boulder at {:?} is moved (we dropped it)", pos);
+                    true // Boulder was dropped by us - has moved
+                }
+                None => {
+                    // Boulder in a never-seen location - it's unexplored (not moved)
+                    false
+                }
+                _ => {
+                    // Boulder replacing something else - likely not a drop, assume not moved
+                    false
+                }
+            };
+
+            // Add or update boulder in our tracking
+            if !self.boulder_info.contains(&pos) {
+                self.boulder_info.add_boulder(pos, has_moved);
+            }
+        }
+    }
+
+    fn update_boulder_positions(&mut self, seen_boulders: Vec<Pos>) {
+        // Add newly seen boulders
+        for boulder_pos in seen_boulders {
+            if !self.boulder_info.contains(&boulder_pos) {
+                // New boulder discovered - assume it hasn't moved unless it's adjacent (we just dropped it)
+                let has_moved = self.player_pos.is_adjacent(&boulder_pos);
+                self.boulder_info.add_boulder(boulder_pos, has_moved);
+            }
+        }
+
+        // Remove boulders that have been picked up (turned to Empty or other non-boulder tiles)
+        let all_boulder_positions = self.boulder_info.get_all_positions();
+        for pos in all_boulder_positions {
+            if let Some(tile) = self.map.get(&pos)
+                && !matches!(tile, Tile::Boulder)
+            {
+                debug!("Boulder at {:?} was picked up or destroyed", pos);
+                self.boulder_info.remove_boulder(&pos);
+            }
+        }
     }
 
     pub fn is_walkable(&self, pos: &Pos, can_open_doors: bool, avoid_keys: bool) -> bool {
@@ -816,8 +827,8 @@ impl WorldState {
                         Some(Tile::DoorBlue) => format!("{}B{}", DOOR_BLUE, RESET),
                         Some(Tile::Enemy) => format!("{}e{}", ENEMY, RESET),
                         Some(Tile::Boulder) => {
-                            // Show unexplored boulders in frontier color, explored in dim yellow
-                            if self.dropped_boulder_positions.contains(&pos) {
+                            // Show moved boulders in explored color, unmoved boulders in frontier color
+                            if self.boulder_info.has_moved(&pos) {
                                 format!("{}o{}", BOULDER_EXPLORED, RESET)
                             } else {
                                 format!("{}O{}", FRONTIER, RESET)

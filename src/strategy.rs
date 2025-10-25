@@ -293,7 +293,7 @@ impl SelectGoal for ReachExitStrategy {
 impl SelectGoal for FetchBoulderForPlateStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         if world.level < 6
-            || world.boulder_positions.is_empty()
+            || world.boulder_info.is_empty()
             || world.player_inventory != crate::swoq_interface::Inventory::None
         {
             return None;
@@ -318,7 +318,7 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
         let mut nearest_boulder: Option<crate::world_state::Pos> = None;
         let mut nearest_distance = i32::MAX;
 
-        for &boulder_pos in &world.boulder_positions {
+        for boulder_pos in world.boulder_info.get_all_positions() {
             let dist = world.player_pos.distance(&boulder_pos);
             if dist < nearest_distance {
                 // Check if we can reach an adjacent position to pick it up
@@ -346,7 +346,7 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
 impl SelectGoal for MoveUnexploredBoulderStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         if world.level < 6
-            || world.boulder_positions.is_empty()
+            || world.boulder_info.is_empty()
             || world.player_inventory != crate::swoq_interface::Inventory::None
         {
             return None;
@@ -354,14 +354,14 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 
         debug!(
             "Checking {} boulders for unexplored ones (frontier size: {})",
-            world.boulder_positions.len(),
+            world.boulder_info.len(),
             world.unexplored_frontier.len()
         );
 
         // Check if any boulder is unexplored and reachable
-        for &boulder_pos in &world.boulder_positions {
-            // Is the boulder unexplored (not dropped by us)?
-            if !world.dropped_boulder_positions.contains(&boulder_pos) {
+        for boulder_pos in world.boulder_info.get_original_boulders() {
+            // Is the boulder unexplored (not moved by us)?
+            if !world.boulder_info.has_moved(&boulder_pos) {
                 debug!("  Boulder at {:?} is unexplored", boulder_pos);
 
                 // Check if we can reach an adjacent position to pick it up
