@@ -1,5 +1,7 @@
+use crate::swoq_interface::Tile;
 use crate::world_state::Pos;
 use std::collections::HashMap;
+use tracing::debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Boulder {
@@ -14,11 +16,11 @@ impl Boulder {
 }
 
 #[derive(Debug, Clone)]
-pub struct BoulderInfo {
+pub struct BoulderTracker {
     boulders: HashMap<Pos, Boulder>,
 }
 
-impl BoulderInfo {
+impl BoulderTracker {
     pub fn new() -> Self {
         Self {
             boulders: HashMap::new(),
@@ -63,5 +65,31 @@ impl BoulderInfo {
 
     pub fn is_empty(&self) -> bool {
         self.boulders.is_empty()
+    }
+
+    /// Update boulder positions based on newly seen boulders and current map state
+    pub fn update<F>(&mut self, seen_boulders: Vec<Pos>, map: &HashMap<Pos, Tile>, is_adjacent: F)
+    where
+        F: Fn(&Pos) -> bool,
+    {
+        // Add newly seen boulders
+        for boulder_pos in seen_boulders {
+            if !self.contains(&boulder_pos) {
+                // New boulder discovered - assume it hasn't moved unless it's adjacent (we just dropped it)
+                let has_moved = is_adjacent(&boulder_pos);
+                self.add_boulder(boulder_pos, has_moved);
+            }
+        }
+
+        // Remove boulders that have been picked up (turned to Empty or other non-boulder tiles)
+        let all_boulder_positions = self.get_all_positions();
+        for pos in all_boulder_positions {
+            if let Some(tile) = map.get(&pos)
+                && !matches!(tile, Tile::Boulder)
+            {
+                debug!("Boulder at {:?} was picked up or destroyed", pos);
+                self.remove_boulder(&pos);
+            }
+        }
     }
 }

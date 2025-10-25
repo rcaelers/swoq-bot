@@ -1,11 +1,12 @@
 mod swoq_interface {
     tonic::include_proto!("swoq.interface");
 }
-mod boulder_info;
+mod boulder_tracker;
 mod default_observer;
 mod game;
 mod game_observer;
 mod goal;
+mod item_tracker;
 mod pathfinding;
 mod strategy;
 mod swoq;

@@ -127,7 +127,7 @@ impl ExecuteGoal for GetKeyGoal {
 
 impl ExecuteGoal for OpenDoorGoal {
     fn execute(&self, world: &mut WorldState) -> Option<DirectedAction> {
-        let door_positions = world.door_positions.get(&self.0)?;
+        let door_positions = world.doors.get_positions(self.0)?;
         let door_pos = *door_positions.first()?;
 
         // OpenDoor is only for keys - if we don't have a key, this shouldn't be selected
@@ -186,7 +186,7 @@ impl ExecuteGoal for StepOnPressurePlateGoal {
 
 impl ExecuteGoal for PickupSwordGoal {
     fn execute(&self, world: &mut WorldState) -> Option<DirectedAction> {
-        let sword_pos = *world.sword_positions.first()?;
+        let sword_pos = *world.swords.get_positions().first()?;
         world.current_destination = Some(sword_pos);
         let path = AStar::find_path(world, world.player_pos, sword_pos, false)?;
         world.current_path = Some(path.clone());

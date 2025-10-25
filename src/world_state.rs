@@ -1,4 +1,5 @@
-use crate::boulder_info::BoulderInfo;
+use crate::boulder_tracker::BoulderTracker;
+use crate::item_tracker::{ColoredItemTracker, ItemTracker};
 use crate::swoq_interface::{Inventory, State, Tile};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -29,6 +30,29 @@ impl Pos {
 
     pub fn is_adjacent(&self, other: &Pos) -> bool {
         self.distance(other) == 1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bounds {
+    pub min_x: i32,
+    pub max_x: i32,
+    pub min_y: i32,
+    pub max_y: i32,
+}
+
+impl Bounds {
+    pub fn new(min_x: i32, max_x: i32, min_y: i32, max_y: i32) -> Self {
+        Self {
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        }
+    }
+
+    pub fn contains(&self, pos: &Pos) -> bool {
+        pos.x >= self.min_x && pos.x <= self.max_x && pos.y >= self.min_y && pos.y <= self.max_y
     }
 }
 
@@ -63,15 +87,14 @@ pub struct WorldState {
     pub player2_has_sword: Option<bool>,
 
     // Tracked positions
+    pub keys: ColoredItemTracker,
+    pub doors: ColoredItemTracker,
+    pub enemies: ItemTracker,
+    pub boulder_info: BoulderTracker,
+    pub swords: ItemTracker,
+    pub health: ItemTracker,
+    pub pressure_plates: ColoredItemTracker,
     pub exit_pos: Option<Pos>,
-    pub key_positions: HashMap<Color, Vec<Pos>>,
-    pub door_positions: HashMap<Color, Vec<Pos>>,
-    pub enemy_positions: Vec<Pos>,
-    pub boulder_info: BoulderInfo,
-    pub sword_positions: Vec<Pos>,
-    pub health_positions: Vec<Pos>,
-    pub pressure_plate_positions: HashMap<Color, Vec<Pos>>,
-    pub pressure_plate_colors: HashMap<Pos, Color>, // Remember the original color of each plate
     pub boss_position: Option<Pos>,
     pub treasure_position: Option<Pos>,
 
@@ -101,14 +124,13 @@ impl WorldState {
             player2_inventory: None,
             player2_has_sword: None,
             exit_pos: None,
-            key_positions: HashMap::new(),
-            door_positions: HashMap::new(),
-            enemy_positions: Vec::new(),
-            boulder_info: BoulderInfo::new(),
-            sword_positions: Vec::new(),
-            health_positions: Vec::new(),
-            pressure_plate_positions: HashMap::new(),
-            pressure_plate_colors: HashMap::new(),
+            keys: ColoredItemTracker::new(),
+            doors: ColoredItemTracker::new(),
+            enemies: ItemTracker::new(),
+            boulder_info: BoulderTracker::new(),
+            swords: ItemTracker::new(),
+            health: ItemTracker::new(),
+            pressure_plates: ColoredItemTracker::new(),
             boss_position: None,
             treasure_position: None,
             unexplored_frontier: HashSet::new(),
@@ -157,14 +179,13 @@ impl WorldState {
         // Clear all map data for the new level
         self.map.clear();
         self.exit_pos = None;
-        self.key_positions.clear();
-        self.door_positions.clear();
-        self.enemy_positions.clear();
+        self.keys.clear();
+        self.doors.clear();
+        self.enemies.clear();
         self.boulder_info.clear();
-        self.sword_positions.clear();
-        self.health_positions.clear();
-        self.pressure_plate_positions.clear();
-        self.pressure_plate_colors.clear();
+        self.swords.clear();
+        self.health.clear();
+        self.pressure_plates.clear();
         self.boss_position = None;
         self.treasure_position = None;
         self.unexplored_frontier.clear();
@@ -187,21 +208,20 @@ impl WorldState {
     fn integrate_surroundings(&mut self, surroundings: &[i32], center: Pos) {
         let size = (self.visibility_range * 2 + 1) as usize;
 
-        // Don't clear enemy_positions - enemies don't move when they can't see the player
-        // We'll update them below when we see them, or remove them if they're confirmed gone
-
         // Calculate visibility bounds
-        let min_x = center.x - self.visibility_range;
-        let max_x = center.x + self.visibility_range;
-        let min_y = center.y - self.visibility_range;
-        let max_y = center.y + self.visibility_range;
+        let bounds = Bounds::new(
+            center.x - self.visibility_range,
+            center.x + self.visibility_range,
+            center.y - self.visibility_range,
+            center.y + self.visibility_range,
+        );
 
         // Remove Unknown tiles that are now outside our visibility range
         // They should revert to unseen (None/?) since we have no current information
         self.map.retain(|pos, tile| {
             if *tile == Tile::Unknown {
                 // Keep Unknown tiles only if they're in our current visibility range
-                pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y
+                bounds.contains(pos)
             } else {
                 // Keep all other tiles (permanent ones should persist)
                 true
@@ -232,37 +252,6 @@ impl WorldState {
             }
 
             if let Ok(tile) = Tile::try_from(tile_val) {
-                // Detect suspicious tile changes
-                if let Some(old_tile) = self.map.get(&pos) {
-                    match (old_tile, tile) {
-                        // Wall becoming empty or other walkable tile
-                        (Tile::Wall, Tile::Empty | Tile::Player | Tile::Exit) => {
-                            warn!(
-                                "SUSPICIOUS: Wall at {:?} changed to {:?} (tick {})",
-                                pos, tile, self.tick
-                            );
-                        }
-                        // Any permanent tile changing to something else (except Unknown fog)
-                        (Tile::Wall, new_tile)
-                            if new_tile != Tile::Wall && new_tile != Tile::Unknown =>
-                        {
-                            warn!(
-                                "SUSPICIOUS: Wall at {:?} changed to {:?} (tick {})",
-                                pos, new_tile, self.tick
-                            );
-                        }
-                        // Door consumed (opened)
-                        (Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue, Tile::Empty) => {
-                            // This is normal - door was opened
-                        }
-                        // Key consumed (picked up)
-                        (Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue, Tile::Empty) => {
-                            // This is normal - key was picked up
-                        }
-                        _ => {}
-                    }
-                }
-
                 // Don't overwrite known permanent tiles with Unknown (fog of war)
                 // Only update if it's new info or if we're updating a temporary tile
                 let should_update = match (self.map.get(&pos), tile) {
@@ -283,27 +272,6 @@ impl WorldState {
                 // Check for dropped boulder BEFORE updating the map
                 if tile == Tile::Boulder {
                     self.check_dropped_boulder(pos);
-                }
-
-                // Check if this boulder is covering a pressure plate (before updating the map)
-                if tile == Tile::Boulder
-                    && let Some(old_tile) = self.map.get(&pos)
-                {
-                    match old_tile {
-                        Tile::PressurePlateRed => {
-                            debug!("Boulder on Red pressure plate at {:?}", pos);
-                            self.pressure_plate_colors.insert(pos, Color::Red);
-                        }
-                        Tile::PressurePlateGreen => {
-                            debug!("Boulder on Green pressure plate at {:?}", pos);
-                            self.pressure_plate_colors.insert(pos, Color::Green);
-                        }
-                        Tile::PressurePlateBlue => {
-                            debug!("Boulder on Blue pressure plate at {:?}", pos);
-                            self.pressure_plate_colors.insert(pos, Color::Blue);
-                        }
-                        _ => {}
-                    }
                 }
 
                 if should_update {
@@ -341,21 +309,18 @@ impl WorldState {
                                 .entry(Color::Red)
                                 .or_default()
                                 .push(pos);
-                            self.pressure_plate_colors.insert(pos, Color::Red);
                         }
                         Tile::PressurePlateGreen => {
                             seen_pressure_plates
                                 .entry(Color::Green)
                                 .or_default()
                                 .push(pos);
-                            self.pressure_plate_colors.insert(pos, Color::Green);
                         }
                         Tile::PressurePlateBlue => {
                             seen_pressure_plates
                                 .entry(Color::Blue)
                                 .or_default()
                                 .push(pos);
-                            self.pressure_plate_colors.insert(pos, Color::Blue);
                         }
                         Tile::Boss => self.boss_position = Some(pos),
                         Tile::Treasure => self.treasure_position = Some(pos),
@@ -365,199 +330,49 @@ impl WorldState {
             }
         }
 
-        // Update key positions: merge newly seen keys with previously known ones
-        for (color, new_positions) in seen_keys {
-            self.key_positions
-                .entry(color)
-                .or_default()
-                .extend(new_positions);
-        }
-        // Deduplicate and remove picked up keys
-        for positions in self.key_positions.values_mut() {
-            // Remove duplicates manually
-            let mut unique_positions: Vec<Pos> = Vec::new();
-            for &pos in positions.iter() {
-                if !unique_positions.contains(&pos) {
-                    unique_positions.push(pos);
-                }
-            }
-            *positions = unique_positions;
-
-            // Remove keys that have been picked up
-            positions.retain(|pos| {
-                if let Some(tile) = self.map.get(pos) {
-                    matches!(tile, Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue)
-                } else {
-                    true // Keep if we haven't seen this position
-                }
-            });
-        }
-
-        // Update door positions: merge newly seen doors with previously known ones
-        for (color, new_positions) in seen_doors {
-            self.door_positions
-                .entry(color)
-                .or_default()
-                .extend(new_positions);
-        }
-        // Deduplicate and remove opened doors
-        for positions in self.door_positions.values_mut() {
-            // Remove duplicates manually
-            let mut unique_positions: Vec<Pos> = Vec::new();
-            for &pos in positions.iter() {
-                if !unique_positions.contains(&pos) {
-                    unique_positions.push(pos);
-                }
-            }
-            *positions = unique_positions;
-
-            // Remove doors that have been opened
-            positions.retain(|pos| {
-                if let Some(tile) = self.map.get(pos) {
-                    matches!(tile, Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue)
-                } else {
-                    true // Keep if we haven't seen this position
-                }
-            });
-        }
-
-        // Update pressure plates similarly
-        for (color, new_positions) in seen_pressure_plates {
-            debug!("Saw {} new {:?} pressure plates this tick", new_positions.len(), color);
-            self.pressure_plate_positions
-                .entry(color)
-                .or_default()
-                .extend(new_positions);
-        }
-
-        debug!(
-            "Total pressure plates before cleanup: Red={}, Green={}, Blue={}",
-            self.pressure_plate_positions
-                .get(&Color::Red)
-                .map_or(0, |v| v.len()),
-            self.pressure_plate_positions
-                .get(&Color::Green)
-                .map_or(0, |v| v.len()),
-            self.pressure_plate_positions
-                .get(&Color::Blue)
-                .map_or(0, |v| v.len())
+        // Update key positions using ColoredItemTracker
+        self.keys.update(
+            seen_keys,
+            &self.map,
+            |tile| matches!(tile, Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue),
+            &bounds,
         );
 
-        for (color, positions) in self.pressure_plate_positions.iter_mut() {
-            debug!("Processing {:?} pressure plates: {} positions", color, positions.len());
-            // Remove duplicates manually
-            let mut unique_positions: Vec<Pos> = Vec::new();
-            for &pos in positions.iter() {
-                if !unique_positions.contains(&pos) {
-                    unique_positions.push(pos);
-                }
-            }
-            *positions = unique_positions;
-            debug!("Processing unique {:?} pressure plates: {} positions", color, positions.len());
+        // Update door positions using ColoredItemTracker
+        self.doors.update(
+            seen_doors,
+            &self.map,
+            |tile| matches!(tile, Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue),
+            &bounds,
+        );
 
-            // Remove pressure plates that have been covered by boulders
-            // We keep the plate's color info in pressure_plate_colors for later boulder tracking
-            let before_count = positions.len();
-            positions.retain(|pos| {
-                if let Some(tile) = self.map.get(pos) {
-                    let is_plate = matches!(
-                        tile,
-                        Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
-                    );
-
-                    if !is_plate {
-                        debug!(
-                            "Removing {:?} pressure plate at {:?} - now shows as {:?}",
-                            color, pos, tile
-                        );
-                    } else {
-                        debug!("Keeping {:?} pressure plate at {:?} (still a plate)", color, pos);
-                    }
-                    is_plate
-                } else {
-                    debug!("Keeping {:?} pressure plate at {:?} (position not in map)", color, pos);
-                    true // Keep if we haven't seen this position
-                }
-            });
-            let after_count = positions.len();
-            if before_count != after_count {
-                debug!(
-                    "Pressure plate count for {:?}: {} -> {} (removed {})",
-                    color,
-                    before_count,
-                    after_count,
-                    before_count - after_count
-                );
-            }
-        }
+        // Update pressure plates using ColoredItemTracker
+        self.pressure_plates.update(
+            seen_pressure_plates,
+            &self.map,
+            |tile| {
+                matches!(
+                    tile,
+                    Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
+                )
+            },
+            &bounds,
+        );
 
         // Update boulder positions
-        self.update_boulder_positions(seen_boulders);
+        self.boulder_info.update(seen_boulders, &self.map, |pos| self.player_pos.is_adjacent(pos));
 
-        // Update sword positions similarly
-        self.sword_positions.extend(seen_swords);
-        let mut unique_swords: Vec<Pos> = Vec::new();
-        for &pos in self.sword_positions.iter() {
-            if !unique_swords.contains(&pos) {
-                unique_swords.push(pos);
-            }
-        }
-        self.sword_positions = unique_swords;
-        self.sword_positions.retain(|pos| {
-            if let Some(tile) = self.map.get(pos) {
-                matches!(tile, Tile::Sword)
-            } else {
-                true
-            }
-        });
+        // Update sword positions using ItemTracker
+        self.swords
+            .update(seen_swords, &self.map, |tile| matches!(tile, Tile::Sword), &bounds);
 
-        // Update health positions similarly
-        self.health_positions.extend(seen_health);
-        let mut unique_health: Vec<Pos> = Vec::new();
-        for &pos in self.health_positions.iter() {
-            if !unique_health.contains(&pos) {
-                unique_health.push(pos);
-            }
-        }
-        self.health_positions = unique_health;
-        self.health_positions.retain(|pos| {
-            if let Some(tile) = self.map.get(pos) {
-                matches!(tile, Tile::Health)
-            } else {
-                true
-            }
-        });
+        // Update health positions using ItemTracker
+        self.health
+            .update(seen_health, &self.map, |tile| matches!(tile, Tile::Health), &bounds);
 
-        // Update enemy positions: add newly seen enemies, remove enemies we can confirm are gone
-        for enemy_pos in seen_enemies {
-            if !self.enemy_positions.contains(&enemy_pos) {
-                debug!("New enemy spotted at {:?}", enemy_pos);
-                self.enemy_positions.push(enemy_pos);
-            }
-        }
-        // Remove enemies that we can now see are not there anymore
-        // Only remove if the position is in our current visibility range and the tile is not Enemy
-        self.enemy_positions.retain(|pos| {
-            // Check if position is in current visibility range
-            let in_range = pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y;
-
-            if in_range {
-                // We can see this position, so check if enemy is still there
-                if let Some(tile) = self.map.get(pos) {
-                    let still_enemy = matches!(tile, Tile::Enemy);
-                    if !still_enemy {
-                        debug!("Enemy at {:?} is gone (now {:?})", pos, tile);
-                    }
-                    still_enemy
-                } else {
-                    // Position in range but not in map? Keep enemy for now
-                    true
-                }
-            } else {
-                // Out of visibility range - keep the enemy position (enemies don't move when not visible)
-                true
-            }
-        });
+        // Update enemy positions using ItemTracker
+        self.enemies
+            .update(seen_enemies, &self.map, |tile| matches!(tile, Tile::Enemy), &bounds);
     }
 
     fn update_frontier(&mut self) {
@@ -599,29 +414,6 @@ impl WorldState {
             // Add or update boulder in our tracking
             if !self.boulder_info.contains(&pos) {
                 self.boulder_info.add_boulder(pos, has_moved);
-            }
-        }
-    }
-
-    #[tracing::instrument(level = "trace", skip(self, seen_boulders), fields(seen_count = seen_boulders.len()))]
-    fn update_boulder_positions(&mut self, seen_boulders: Vec<Pos>) {
-        // Add newly seen boulders
-        for boulder_pos in seen_boulders {
-            if !self.boulder_info.contains(&boulder_pos) {
-                // New boulder discovered - assume it hasn't moved unless it's adjacent (we just dropped it)
-                let has_moved = self.player_pos.is_adjacent(&boulder_pos);
-                self.boulder_info.add_boulder(boulder_pos, has_moved);
-            }
-        }
-
-        // Remove boulders that have been picked up (turned to Empty or other non-boulder tiles)
-        let all_boulder_positions = self.boulder_info.get_all_positions();
-        for pos in all_boulder_positions {
-            if let Some(tile) = self.map.get(&pos)
-                && !matches!(tile, Tile::Boulder)
-            {
-                debug!("Boulder at {:?} was picked up or destroyed", pos);
-                self.boulder_info.remove_boulder(&pos);
             }
         }
     }
@@ -687,14 +479,17 @@ impl WorldState {
     fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Pos>> {
         let mut result: HashMap<Color, Vec<Pos>> = HashMap::new();
 
-        for boulder_pos in self.boulder_info.get_all_positions() {
-            // Check if this boulder position was originally a pressure plate
-            if let Some(&color) = self.pressure_plate_colors.get(&boulder_pos) {
-                // Verify the tile is actually a boulder
-                if let Some(tile) = self.map.get(&boulder_pos)
-                    && matches!(tile, Tile::Boulder)
-                {
-                    result.entry(color).or_default().push(boulder_pos);
+        // Check each color's pressure plates to see if a boulder is on any of them
+        for &color in &[Color::Red, Color::Green, Color::Blue] {
+            if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
+                for &plate_pos in plate_positions {
+                    // Check if there's a boulder at this plate position
+                    if let Some(tile) = self.map.get(&plate_pos)
+                        && matches!(tile, Tile::Boulder)
+                        && self.boulder_info.contains(&plate_pos)
+                    {
+                        result.entry(color).or_default().push(plate_pos);
+                    }
                 }
             }
         }
@@ -727,51 +522,31 @@ impl WorldState {
     }
 
     pub fn closest_enemy(&self) -> Option<Pos> {
-        self.enemy_positions
-            .iter()
-            .min_by_key(|pos| self.player_pos.distance(pos))
-            .copied()
+        self.enemies.closest_to(self.player_pos)
     }
 
     pub fn closest_health(&self) -> Option<Pos> {
-        self.health_positions
-            .iter()
-            .min_by_key(|pos| self.player_pos.distance(pos))
-            .copied()
+        self.health.closest_to(self.player_pos)
     }
 
     pub fn doors_without_keys(&self) -> Vec<Color> {
-        // Return all door colors we don't have keys for
-        self.door_positions
-            .keys()
+        self.doors
+            .colors()
             .filter(|color| !self.has_key(**color))
             .copied()
             .collect()
     }
 
     pub fn closest_door_of_color(&self, color: Color) -> Option<Pos> {
-        // Find the closest door of a specific color
-        self.door_positions.get(&color).and_then(|positions| {
-            positions
-                .iter()
-                .min_by_key(|pos| self.player_pos.distance(pos))
-                .copied()
-        })
+        self.doors.closest_to(color, self.player_pos)
     }
 
     pub fn knows_key_location(&self, color: Color) -> bool {
-        self.key_positions
-            .get(&color)
-            .is_some_and(|keys| !keys.is_empty())
+        self.keys.has_color(color)
     }
 
     pub fn closest_key(&self, color: Color) -> Option<Pos> {
-        self.key_positions.get(&color).and_then(|positions| {
-            positions
-                .iter()
-                .min_by_key(|pos| self.player_pos.distance(pos))
-                .copied()
-        })
+        self.keys.closest_to(color, self.player_pos)
     }
 
     pub fn draw_ascii_map(&self) -> String {

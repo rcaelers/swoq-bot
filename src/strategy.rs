@@ -1,7 +1,7 @@
 use crate::goal::Goal;
 use crate::pathfinding::AStar;
 use crate::swoq_interface::DirectedAction;
-use crate::world_state::WorldState;
+use crate::world_state::{Color, WorldState};
 use tracing::debug;
 
 pub trait SelectGoal {
@@ -118,13 +118,14 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
 
 impl SelectGoal for PickupHealthStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        if world.level < 10 || world.health_positions.is_empty() {
+        if world.level < 10 || world.health.is_empty() {
             return None;
         }
 
         // Check if any enemy is close (within 5 tiles)
         let enemy_nearby = world
-            .enemy_positions
+            .enemies
+            .get_positions()
             .iter()
             .any(|&enemy_pos| world.player_pos.distance(&enemy_pos) <= 5);
 
@@ -140,7 +141,7 @@ impl SelectGoal for PickupHealthStrategy {
 
 impl SelectGoal for PickupSwordStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        if world.level >= 10 && !world.player_has_sword && !world.sword_positions.is_empty() {
+        if world.level >= 10 && !world.player_has_sword && !world.swords.is_empty() {
             Some(Goal::PickupSword)
         } else {
             None
@@ -157,14 +158,16 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
         debug!("Carrying a boulder, checking for pressure plates");
 
         // Check if there's a pressure plate we can reach
-        for (color, plates) in &world.pressure_plate_positions {
-            if let Some(&plate_pos) = plates.first() {
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            if let Some(plates) = world.pressure_plates.get_positions(color)
+                && let Some(&plate_pos) = plates.first()
+            {
                 // Check if we can reach the plate
                 if world.player_pos.is_adjacent(&plate_pos)
                     || AStar::find_path(world, world.player_pos, plate_pos, true).is_some()
                 {
                     debug!("Found reachable {:?} pressure plate at {:?}", color, plate_pos);
-                    return Some(Goal::DropBoulderOnPlate(*color, plate_pos));
+                    return Some(Goal::DropBoulderOnPlate(color, plate_pos));
                 }
             }
         }
@@ -178,34 +181,37 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
 impl SelectGoal for UsePressurePlateForDoorStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
         // Check if we can use pressure plates to open doors (prefer keys over plates)
-        for (color, plates) in &world.pressure_plate_positions {
+        for color in [Color::Red, Color::Green, Color::Blue] {
             // Skip if we have a key for this color
-            if world.has_key(*color) {
+            if world.has_key(color) {
                 continue;
             }
 
-            let door_positions = world.door_positions.get(color)?;
+            let door_positions = world.doors.get_positions(color)?;
             if door_positions.is_empty() {
                 continue;
             }
 
-            // Check each pressure plate to see if we can stand on it
-            for &plate_pos in plates {
-                // Can we reach the plate?
-                if !world.player_pos.is_adjacent(&plate_pos)
-                    && AStar::find_path(world, world.player_pos, plate_pos, false).is_none()
-                {
-                    continue;
-                }
+            // Get pressure plates for this color
+            if let Some(plates) = world.pressure_plates.get_positions(color) {
+                // Check each pressure plate to see if we can stand on it
+                for &plate_pos in plates {
+                    // Can we reach the plate?
+                    if !world.player_pos.is_adjacent(&plate_pos)
+                        && AStar::find_path(world, world.player_pos, plate_pos, false).is_none()
+                    {
+                        continue;
+                    }
 
-                // Is there a door of the same color adjacent to this plate?
-                for &neighbor in &plate_pos.neighbors() {
-                    if door_positions.contains(&neighbor) {
-                        debug!(
-                            "Found {:?} pressure plate at {:?} adjacent to door at {:?}",
-                            color, plate_pos, neighbor
-                        );
-                        return Some(Goal::StepOnPressurePlate(*color, plate_pos));
+                    // Is there a door of the same color adjacent to this plate?
+                    for &neighbor in &plate_pos.neighbors() {
+                        if door_positions.contains(&neighbor) {
+                            debug!(
+                                "Found {:?} pressure plate at {:?} adjacent to door at {:?}",
+                                color, plate_pos, neighbor
+                            );
+                            return Some(Goal::StepOnPressurePlate(color, plate_pos));
+                        }
                     }
                 }
             }
@@ -217,9 +223,9 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
 
 impl SelectGoal for OpenDoorWithKeyStrategy {
     fn try_select(&self, world: &WorldState) -> Option<Goal> {
-        for color in world.door_positions.keys() {
-            if world.has_key(*color) {
-                let door_pos = world.closest_door_of_color(*color)?;
+        for &color in world.doors.colors() {
+            if world.has_key(color) {
+                let door_pos = world.closest_door_of_color(color)?;
                 debug!("We have key for {:?}, door at {:?}", color, door_pos);
 
                 // Check if door is reachable (can path through doors we have keys for)
@@ -227,7 +233,7 @@ impl SelectGoal for OpenDoorWithKeyStrategy {
                     || AStar::find_path(world, world.player_pos, door_pos, true).is_some()
                 {
                     debug!("(we have the key, door is reachable)");
-                    return Some(Goal::OpenDoor(*color));
+                    return Some(Goal::OpenDoor(color));
                 } else {
                     debug!("Door at {:?} is not reachable", door_pos);
                 }
@@ -261,7 +267,7 @@ impl SelectGoal for GetKeyForDoorStrategy {
                         debug!("Key at {:?} is not reachable", key_pos);
                     }
                 } else {
-                    debug!("No keys found in key_positions map for {:?}!", color);
+                    debug!("No keys found for {:?}!", color);
                 }
             }
         }
@@ -300,19 +306,15 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
         }
 
         // First priority: if there's a pressure plate, fetch a boulder for it
-        let has_pressure_plates = world
-            .pressure_plate_positions
-            .values()
-            .any(|v| !v.is_empty());
+        let has_pressure_plates = [Color::Red, Color::Green, Color::Blue]
+            .iter()
+            .any(|&color| world.pressure_plates.has_color(color));
 
         if !has_pressure_plates {
             return None;
         }
 
-        debug!(
-            "Found {} pressure plate colors, looking for nearest boulder",
-            world.pressure_plate_positions.len()
-        );
+        debug!("Found pressure plates, looking for nearest boulder");
 
         // Find nearest reachable boulder
         let mut nearest_boulder: Option<crate::world_state::Pos> = None;
@@ -392,17 +394,19 @@ impl SelectGoal for FallbackPressurePlateStrategy {
         }
 
         debug!("Area fully explored, checking for pressure plates to step on");
-        for (color, plates) in &world.pressure_plate_positions {
-            for &plate_pos in plates {
-                // Check if we can reach the plate
-                if world.player_pos.is_adjacent(&plate_pos)
-                    || AStar::find_path(world, world.player_pos, plate_pos, false).is_some()
-                {
-                    debug!(
-                        "Found reachable {:?} pressure plate at {:?} as fallback",
-                        color, plate_pos
-                    );
-                    return Some(Goal::StepOnPressurePlate(*color, plate_pos));
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            if let Some(plates) = world.pressure_plates.get_positions(color) {
+                for &plate_pos in plates {
+                    // Check if we can reach the plate
+                    if world.player_pos.is_adjacent(&plate_pos)
+                        || AStar::find_path(world, world.player_pos, plate_pos, false).is_some()
+                    {
+                        debug!(
+                            "Found reachable {:?} pressure plate at {:?} as fallback",
+                            color, plate_pos
+                        );
+                        return Some(Goal::StepOnPressurePlate(color, plate_pos));
+                    }
                 }
             }
         }
@@ -421,13 +425,13 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
             "HuntEnemyWithSwordStrategy check: has_sword={}, frontier_empty={}, enemies_present={} (count={})",
             world.player_has_sword,
             world.unexplored_frontier.is_empty(),
-            !world.enemy_positions.is_empty(),
-            world.enemy_positions.len()
+            !world.enemies.is_empty(),
+            world.enemies.get_positions().len()
         );
 
         if !world.player_has_sword
             || !world.unexplored_frontier.is_empty()
-            || world.enemy_positions.is_empty()
+            || world.enemies.is_empty()
         {
             return None;
         }
