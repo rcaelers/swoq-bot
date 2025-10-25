@@ -13,7 +13,7 @@ Copyright (c) 2025 Ralph Schiedon.
   - [ ] Game should not start before visualizer is ready
   - [x] Show logging pane
 - [ ] Refactoring vibe coded parts
-  - [ ] integrate_surroundings
+  - [x] integrate_surroundings
   - [ ] ...
 - [ ] Level 12: 2 Player mode
 - [ ] AI strategies
