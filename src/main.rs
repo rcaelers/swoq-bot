@@ -44,6 +44,26 @@ fn init_logging() {
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 }
 
+async fn run_game_loop(
+    mut game: Game,
+    level: Option<i32>,
+    seed: Option<i32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // If level is specified, restart the game indefinitely when it ends
+    if level.is_some() {
+        loop {
+            tracing::info!("Starting game for level {:?}", level);
+            if let Err(e) = game.run(level, seed).await {
+                tracing::error!("Game error: {:?}", e);
+            }
+            tracing::info!("Game ended, restarting...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    } else {
+        game.run(level, seed).await
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -80,16 +100,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let connection = GameConnection::new(user_id, user_name, host, replays_folder)
                     .await
                     .unwrap();
-                let mut game = Game::new(connection, VisualizingObserver::new(game_state, log_tx));
-                let _ = game.run(level, seed).await;
+                let game = Game::new(connection, VisualizingObserver::new(game_state, log_tx));
+                let _ = run_game_loop(game, level, seed).await;
             });
         });
 
         run_visualizer(shared_state, ready_tx, log_rx);
     } else {
         let connection = GameConnection::new(user_id, user_name, host, replays_folder).await?;
-        let mut game = Game::new(connection, DefaultObserver);
-        game.run(level, seed).await?;
+        let game = Game::new(connection, DefaultObserver);
+        run_game_loop(game, level, seed).await?;
     }
 
     Ok(())
