@@ -27,7 +27,6 @@ impl ItemTracker {
     ) where
         F: Fn(&Tile) -> bool,
     {
-
         // Add newly seen items
         self.positions.extend(seen_items);
 
@@ -108,7 +107,6 @@ impl ColoredItemTracker {
     ) where
         F: Fn(&Tile) -> bool,
     {
-
         // Merge newly seen items with previously known ones
         for (color, new_positions) in seen_items {
             self.positions

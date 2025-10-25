@@ -362,7 +362,8 @@ impl WorldState {
         );
 
         // Update boulder positions
-        self.boulder_info.update(seen_boulders, &self.map, |pos| self.player_pos.is_adjacent(pos));
+        self.boulder_info
+            .update(seen_boulders, &self.map, |pos| self.player_pos.is_adjacent(pos));
 
         // Update sword positions using ItemTracker
         self.swords

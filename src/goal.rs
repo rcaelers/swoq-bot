@@ -26,18 +26,14 @@ impl Goal {
             Goal::Explore => ExploreGoal.execute(world),
             Goal::GetKey(color) => GetKeyGoal(*color).execute(world),
             Goal::OpenDoor(color) => OpenDoorGoal(*color).execute(world),
-            Goal::StepOnPressurePlate(_color, pos) => {
-                StepOnPressurePlateGoal(*pos).execute(world)
-            }
+            Goal::StepOnPressurePlate(_color, pos) => StepOnPressurePlateGoal(*pos).execute(world),
             Goal::PickupSword => PickupSwordGoal.execute(world),
             Goal::PickupHealth => PickupHealthGoal.execute(world),
             Goal::ReachExit => ReachExitGoal.execute(world),
             Goal::KillEnemy(pos) => KillEnemyGoal(*pos).execute(world),
             Goal::AvoidEnemy(pos) => AvoidEnemyGoal(*pos).execute(world),
             Goal::FetchBoulder(pos) => FetchBoulderGoal(*pos).execute(world),
-            Goal::DropBoulderOnPlate(_color, pos) => {
-                DropBoulderOnPlateGoal(*pos).execute(world)
-            }
+            Goal::DropBoulderOnPlate(_color, pos) => DropBoulderOnPlateGoal(*pos).execute(world),
             Goal::DropBoulder => DropBoulderGoal.execute(world),
         }
     }
