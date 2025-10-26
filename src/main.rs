@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .await
                     .unwrap();
                 let composite = CompositeObserver::new(vec![
-                    Box::new(DefaultObserver),
+                    Box::new(DefaultObserver::default()),
                     Box::new(VisualizingObserver::new(game_state, log_tx)),
                 ]);
                 let game = Game::new(connection, composite);
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_visualizer(shared_state, ready_tx, log_rx);
     } else {
         let connection = GameConnection::new(user_id, user_name, host, replays_folder).await?;
-        let game = Game::new(connection, DefaultObserver);
+        let game = Game::new(connection, DefaultObserver::default());
         run_game_loop(game, level, seed, loop_enabled).await?;
     }
 

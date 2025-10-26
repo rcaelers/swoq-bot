@@ -6,7 +6,11 @@ use crate::goal::Goal;
 use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 
-pub struct DefaultObserver;
+#[derive(Default)]
+pub struct DefaultObserver {
+    game_count: i32,
+}
+
 
 impl GameObserver for DefaultObserver {
     fn on_game_start(
@@ -17,9 +21,10 @@ impl GameObserver for DefaultObserver {
         map_height: i32,
         visibility_range: i32,
     ) {
+        self.game_count += 1;
         info!(
-            "Game started: id={}, seed={:?}, size={}x{}, visibility={}",
-            game_id, seed, map_width, map_height, visibility_range
+            "Game #{} started: id={}, seed={:?}, size={}x{}, visibility={}",
+            self.game_count, game_id, seed, map_width, map_height, visibility_range
         );
     }
 
@@ -30,7 +35,8 @@ impl GameObserver for DefaultObserver {
     fn on_state_update(&mut self, state: &State, world: &WorldState) {
         let p1 = &world.players[0];
         tracing::debug!(
-            "Level {}, Tick {}: P1 Health={}, Position=({}, {})",
+            "Game #{}, Level {}, Tick {}: P1 Health={}, Position=({}, {})",
+            self.game_count,
             world.level,
             state.tick,
             p1.health,
@@ -103,6 +109,11 @@ impl GameObserver for DefaultObserver {
     }
 
     fn on_game_finished(&mut self, status: GameStatus, final_tick: i32) {
-        tracing::info!("Game finished: status={:?}, tick={}", status, final_tick);
+        tracing::info!(
+            "Game #{} finished: status={:?}, tick={}",
+            self.game_count,
+            status,
+            final_tick
+        );
     }
 }

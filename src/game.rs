@@ -70,9 +70,9 @@ impl Game {
                     player.position.y
                 );
 
-                // Also notify observer (currently only for player 1)
+                // Notify observer for all players
+                self.observer.on_goal_selected(goal, &world);
                 if idx == 0 {
-                    self.observer.on_goal_selected(goal, &world);
                     self.observer.on_action_selected(*action, &world);
                 }
             }

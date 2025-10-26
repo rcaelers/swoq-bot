@@ -15,8 +15,11 @@ pub struct LogMessage {
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogColor {
+    #[allow(dead_code)]
     Cyan,
+    #[allow(dead_code)]
     Green,
+    #[allow(dead_code)]
     Yellow,
     White,
     Red,
@@ -560,7 +563,10 @@ fn render_world_state(
         format!("{:?}", p1.inventory)
     };
 
-    let line1_left = format!("Level:{:<4} Tick:{:<6}", world_state.level, world_state.tick);
+    let line1_left = format!(
+        "Game:{:<4} Level:{:<4} Tick:{:<6}",
+        world_state.game_count, world_state.level, world_state.tick
+    );
     let line1_right = format!("P1  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p1.health, p1_inv, p1_goal);
 
     // Level and Tick - left aligned
