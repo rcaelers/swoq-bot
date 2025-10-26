@@ -88,133 +88,14 @@ impl Planner {
         println!("└────────────────────────────────────────────────────────────┘");
 
         // Execute each goal and collect actions
-        let mut actions: Vec<DirectedAction> = Vec::new();
-        for (player_index, goal) in goals.iter().enumerate() {
+        let mut results = Vec::new();
+        for (player_index, goal) in goals.into_iter().enumerate() {
             if player_index < num_players {
                 // Set current goal before execution
                 world.players[player_index].current_goal = Some(goal.clone());
                 let action = goal
                     .execute_for_player(world, player_index)
                     .unwrap_or(DirectedAction::None);
-                actions.push(action);
-            }
-        }
-
-        // Check for conflicts and resolve them
-        // If both players would conflict, only delay the higher-indexed player to ensure progress
-        let mut delayed_player: Option<usize> = None;
-
-        if num_players > 1 {
-            for player_index in 0..num_players {
-                let action = actions[player_index];
-                if !matches!(
-                    action,
-                    DirectedAction::MoveNorth
-                        | DirectedAction::MoveSouth
-                        | DirectedAction::MoveEast
-                        | DirectedAction::MoveWest
-                ) {
-                    continue;
-                }
-
-                let player_pos = world.players[player_index].position;
-                let expected_next = match action {
-                    DirectedAction::MoveNorth => Position::new(player_pos.x, player_pos.y - 1),
-                    DirectedAction::MoveSouth => Position::new(player_pos.x, player_pos.y + 1),
-                    DirectedAction::MoveEast => Position::new(player_pos.x + 1, player_pos.y),
-                    DirectedAction::MoveWest => Position::new(player_pos.x - 1, player_pos.y),
-                    _ => player_pos,
-                };
-
-                for other_index in 0..num_players {
-                    if other_index == player_index {
-                        continue;
-                    }
-
-                    let other_pos = world.players[other_index].position;
-
-                    // Check if we're trying to move to where another player is
-                    if expected_next == other_pos {
-                        debug!(
-                            "Player {} conflicts: trying to move to player {}'s current position {:?}",
-                            player_index + 1,
-                            other_index + 1,
-                            other_pos
-                        );
-
-                        // If no player has been delayed yet, delay this player
-                        if delayed_player.is_none() {
-                            delayed_player = Some(player_index);
-                            actions[player_index] = DirectedAction::None;
-                            debug!("Player {} action delayed", player_index + 1);
-                        }
-                        break;
-                    }
-
-                    // Check if we're trying to move to where another player is going (their next step)
-                    if let Some(ref other_path) = world.players[other_index].current_path
-                        && other_path.len() >= 2
-                    {
-                        let other_next = other_path[1];
-                        if expected_next == other_next {
-                            debug!(
-                                "Player {} conflicts: trying to move to player {}'s next position {:?}",
-                                player_index + 1,
-                                other_index + 1,
-                                other_next
-                            );
-
-                            // If no player has been delayed yet, delay this player
-                            if delayed_player.is_none() {
-                                delayed_player = Some(player_index);
-                                actions[player_index] = DirectedAction::None;
-                                debug!("Player {} action delayed", player_index + 1);
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Consistency check and build results
-        let mut results = Vec::new();
-        for (player_index, goal) in goals.into_iter().enumerate() {
-            if player_index < num_players {
-                let action = actions[player_index];
-                let player_pos = world.players[player_index].position;
-                let expected_next = match action {
-                    DirectedAction::MoveNorth => Position::new(player_pos.x, player_pos.y - 1),
-                    DirectedAction::MoveSouth => Position::new(player_pos.x, player_pos.y + 1),
-                    DirectedAction::MoveEast => Position::new(player_pos.x + 1, player_pos.y),
-                    DirectedAction::MoveWest => Position::new(player_pos.x - 1, player_pos.y),
-                    _ => player_pos,
-                };
-
-                // Consistency check: verify action matches destination
-                if let Some(_dest) = world.players[player_index].current_destination {
-                    // Check if the action is moving towards the destination
-                    if action != DirectedAction::None
-                        && matches!(
-                            action,
-                            DirectedAction::MoveNorth
-                                | DirectedAction::MoveSouth
-                                | DirectedAction::MoveEast
-                                | DirectedAction::MoveWest
-                        )
-                    {
-                        // Verify the move is on a valid path to destination
-                        if let Some(ref path) = world.players[player_index].current_path
-                            && path.len() >= 2
-                            && path[1] != expected_next
-                        {
-                            debug!(
-                                "WARNING: Action {:?} leads to {:?} but path expects {:?}",
-                                action, expected_next, path[1]
-                            );
-                        }
-                    }
-                }
 
                 // Update previous goal after execution
                 world.players[player_index].previous_goal = Some(goal.clone());

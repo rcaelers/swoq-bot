@@ -4,6 +4,39 @@ use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
 use crate::world_state::WorldState;
 
+/// Helper function to find a path for a player, avoiding collision with other player's path
+fn find_path_for_player(
+    world: &WorldState,
+    player_index: usize,
+    start: Position,
+    goal: Position,
+) -> Option<Vec<Position>> {
+    // For player 2, avoid player 1's path
+    if player_index == 1
+        && world.players.len() > 1
+        && let Some(ref p1_path) = world.players[0].current_path
+    {
+        debug!(
+            "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
+            start,
+            goal,
+            p1_path.len()
+        );
+        let result = world.map.find_path_avoiding_player(start, goal, p1_path);
+        if result.is_some() {
+            debug!("  ✓ Found path avoiding Player 1");
+            debug!("    Player 1 path: {:?}", p1_path);
+            debug!("    Player 2 path: {:?}", result);
+        } else {
+            debug!("  ✗ No path found avoiding Player 1");
+        }
+        return result;
+    }
+
+    // For player 1 or when player 1 has no path, use regular pathfinding
+    world.map.find_path(start, goal)
+}
+
 /// Helper function to determine if a new path should replace the current path
 /// Returns true if the new path is shorter than the old path (which is already trimmed)
 fn should_update_path(new_path: &[Position], old_path: Option<&Vec<Position>>) -> bool {
@@ -85,7 +118,7 @@ fn try_update_path_to_destination(world: &mut WorldState, player_index: usize) -
     let player_pos = world.players[player_index].position;
 
     if let Some(dest) = world.players[player_index].current_destination
-        && let Some(new_path) = world.map.find_path(player_pos, dest)
+        && let Some(new_path) = find_path_for_player(world, player_index, player_pos, dest)
     {
         if should_update_path(&new_path, world.players[player_index].current_path.as_ref()) {
             debug!("Updating path to destination {:?}, new path length={}", dest, new_path.len());
@@ -179,12 +212,12 @@ impl ExecuteGoal for ExploreGoal {
         validate_destination(world, player_index);
 
         // Step 2: Validate and trim path
-        validate_and_trim_path(world, player_index);
+        // validate_and_trim_path(world, player_index);
 
-        // Step 3: Try to update path to existing destination
-        if try_update_path_to_destination(world, player_index) {
-            return path_to_action(player_pos, world.players[player_index].current_path.as_ref()?);
-        }
+        // // Step 3: Try to update path to existing destination
+        // if try_update_path_to_destination(world, player_index) {
+        //     return path_to_action(player_pos, world.players[player_index].current_path.as_ref()?);
+        // }
 
         // Step 4: Search for new frontier destination
         let sorted_frontier = &world.players[player_index].sorted_unexplored();
@@ -200,7 +233,7 @@ impl ExecuteGoal for ExploreGoal {
                 );
             }
             attempts += 1;
-            if let Some(path) = world.map.find_path(player_pos, *target) {
+            if let Some(path) = find_path_for_player(world, player_index, player_pos, *target) {
                 debug!(
                     "New frontier destination: {:?}, path length={} (tried {} tiles)",
                     target,
@@ -345,11 +378,11 @@ impl ExecuteGoal for PickupSwordGoal {
     fn execute(&self, world: &mut WorldState, player_index: usize) -> Option<DirectedAction> {
         let player_pos = world.players[player_index].position;
         let sword_pos = world.closest_sword(&world.players[player_index])?;
-        
+
         // Validate destination and trim path
         validate_destination(world, player_index);
         validate_and_trim_path(world, player_index);
-        
+
         // Check if we can reuse existing path
         if let Some(dest) = world.players[player_index].current_destination
             && dest == sword_pos
@@ -357,7 +390,7 @@ impl ExecuteGoal for PickupSwordGoal {
         {
             return path_to_action(player_pos, path);
         }
-        
+
         // Compute new path
         world.players[player_index].current_destination = Some(sword_pos);
         let path = world.map.find_path(player_pos, sword_pos)?;
@@ -599,7 +632,7 @@ impl ExecuteGoal for RandomExploreGoal {
 
         // Try to path to the random position
         world.players[player_index].current_destination = Some(target_pos);
-        let path = world.map.find_path(player_pos, target_pos)?;
+        let path = find_path_for_player(world, player_index, player_pos, target_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }

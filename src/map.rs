@@ -76,6 +76,57 @@ impl Map {
         AStar::find_path(self, start, goal, |pos, goal| self.is_walkable(pos, goal))
     }
 
+    /// Find a path that avoids colliding with another player's planned path.
+    /// For each position at step N in our path, we avoid:
+    /// 1. The position where the other player is at step N (same tick collision)
+    /// 2. The position where the other player was at step N-1 (swap if P2 moves first)
+    /// 3. The position where the other player will be at step N+1 (swap if P1 moves first)
+    pub fn find_path_avoiding_player(
+        &self,
+        start: Position,
+        goal: Position,
+        other_player_path: &[Position],
+    ) -> Option<Vec<Position>> {
+        AStar::find_path_with_tick(self, start, goal, |pos, goal_pos, tick| {
+            // First check basic walkability
+            if !self.is_walkable(pos, goal_pos) {
+                return false;
+            }
+
+            let tick_index = tick as usize;
+
+            // Check if the other player is at this position at this tick (same tick collision)
+            if tick_index < other_player_path.len() {
+                if *pos == other_player_path[tick_index] {
+                    return false; // Would collide at this tick
+                }
+            } else if let Some(last_pos) = other_player_path.last() {
+                // Other player has finished their path, check their final position
+                if *pos == *last_pos {
+                    return false; // Other player is resting here
+                }
+            }
+
+            // Check swap collision: P2 moving to where P1 was (P2 moves first)
+            // path_player2[tick] cannot be path_player1[tick-1]
+            if tick_index > 0
+                && tick_index - 1 < other_player_path.len()
+                && *pos == other_player_path[tick_index - 1]
+            {
+                return false; // Would swap with P1
+            }
+
+            // Check swap collision: P2 moving to where P1 will be (P1 moves first)
+            // path_player2[tick] cannot be path_player1[tick+1]
+            if tick_index + 1 < other_player_path.len() && *pos == other_player_path[tick_index + 1]
+            {
+                return false; // Would swap with P1
+            }
+
+            true
+        })
+    }
+
     /// Compute all reachable positions from start using a walkability checker.
     /// Returns a HashSet of reachable frontier positions
     /// (positions that are Unknown or None and adjacent to explored/known tiles).
@@ -113,8 +164,10 @@ impl Map {
                 }
 
                 // Check if this is an unexplored tile (frontier candidate)
-                let is_unexplored =
-                    matches!(self.get(&neighbor), Some(crate::swoq_interface::Tile::Unknown) | None);
+                let is_unexplored = matches!(
+                    self.get(&neighbor),
+                    Some(crate::swoq_interface::Tile::Unknown) | None
+                );
 
                 // Use the provided walkability checker
                 let walkable = is_walkable(&neighbor);
