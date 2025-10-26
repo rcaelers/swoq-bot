@@ -4,11 +4,13 @@ use crate::map::Map;
 use crate::swoq_interface::{Inventory, Tile};
 use crate::types::Position;
 
+#[allow(dead_code)]
 pub trait Player {
     fn position(&self) -> Position;
     fn health(&self) -> i32;
     fn inventory(&self) -> Inventory;
     fn has_sword(&self) -> bool;
+    fn current_goal(&self) -> Option<crate::goal::Goal>;
     fn previous_goal(&self) -> Option<crate::goal::Goal>;
     fn current_destination(&self) -> Option<Position>;
     fn current_path(&self) -> Option<Vec<Position>>;
@@ -16,6 +18,7 @@ pub trait Player {
 
     fn set_current_destination(&mut self, dest: Option<Position>);
     fn set_current_path(&mut self, path: Option<Vec<Position>>);
+    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>);
     fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>);
 
     fn update_frontier(&mut self, map: &Map);
@@ -28,7 +31,9 @@ pub struct PlayerState {
     pub health: i32,
     pub inventory: Inventory,
     pub has_sword: bool,
+    pub is_active: bool,
     // Planning state to avoid oscillation
+    pub current_goal: Option<crate::goal::Goal>,
     pub previous_goal: Option<crate::goal::Goal>,
     pub current_destination: Option<Position>,
     pub current_path: Option<Vec<Position>>,
@@ -42,6 +47,8 @@ impl PlayerState {
             health: 10,
             inventory: Inventory::None,
             has_sword: false,
+            is_active: true,
+            current_goal: None,
             previous_goal: None,
             current_destination: None,
             current_path: None,
@@ -52,6 +59,8 @@ impl PlayerState {
     pub fn clear(&mut self) {
         self.inventory = Inventory::None;
         self.has_sword = false;
+        self.is_active = true;
+        self.current_goal = None;
         self.previous_goal = None;
         self.current_destination = None;
         self.current_path = None;
@@ -60,19 +69,20 @@ impl PlayerState {
 
     #[tracing::instrument(level = "trace", skip(self, map))]
     pub fn update_frontier(&mut self, map: &Map) {
-        let mut frontier =
-            crate::pathfinding::AStar::compute_reachable_positions(map, self.position, |pos| {
-                // Optimistic walkability: treat Unknown and None as walkable
-                match map.get(pos) {
-                    Some(Tile::Wall) | Some(Tile::Boulder) | Some(Tile::Enemy) => false,
-                    // Doors without keys are barriers - check player inventory only
-                    Some(Tile::DoorRed) => matches!(self.inventory, Inventory::KeyRed),
-                    Some(Tile::DoorGreen) => matches!(self.inventory, Inventory::KeyGreen),
-                    Some(Tile::DoorBlue) => matches!(self.inventory, Inventory::KeyBlue),
-                    // Unknown and None are optimistically walkable
-                    _ => true,
+        let mut frontier = map.compute_reachable_positions(self.position, |pos| {
+            // Optimistic walkability: treat Unknown and None as walkable
+            match map.get(pos) {
+                Some(Tile::Wall) | Some(Tile::Boulder) | Some(Tile::Enemy) | Some(Tile::Exit) => {
+                    false
                 }
-            });
+                // Doors without keys are barriers - check player inventory only
+                Some(Tile::DoorRed) => matches!(self.inventory, Inventory::KeyRed),
+                Some(Tile::DoorGreen) => matches!(self.inventory, Inventory::KeyGreen),
+                Some(Tile::DoorBlue) => matches!(self.inventory, Inventory::KeyBlue),
+                // Unknown and None are optimistically walkable
+                _ => true,
+            }
+        });
 
         // Filter to only keep positions that are actually Unknown or None
         // This ensures the frontier only contains unexplored tiles
@@ -107,6 +117,10 @@ impl Player for PlayerState {
         self.has_sword
     }
 
+    fn current_goal(&self) -> Option<crate::goal::Goal> {
+        self.current_goal.clone()
+    }
+
     fn previous_goal(&self) -> Option<crate::goal::Goal> {
         self.previous_goal.clone()
     }
@@ -129,6 +143,10 @@ impl Player for PlayerState {
 
     fn set_current_path(&mut self, path: Option<Vec<Position>>) {
         self.current_path = path;
+    }
+
+    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>) {
+        self.current_goal = goal;
     }
 
     fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>) {
@@ -161,6 +179,10 @@ impl Player for &mut PlayerState {
         self.has_sword
     }
 
+    fn current_goal(&self) -> Option<crate::goal::Goal> {
+        self.current_goal.clone()
+    }
+
     fn previous_goal(&self) -> Option<crate::goal::Goal> {
         self.previous_goal.clone()
     }
@@ -183,6 +205,10 @@ impl Player for &mut PlayerState {
 
     fn set_current_path(&mut self, path: Option<Vec<Position>>) {
         self.current_path = path;
+    }
+
+    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>) {
+        self.current_goal = goal;
     }
 
     fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>) {

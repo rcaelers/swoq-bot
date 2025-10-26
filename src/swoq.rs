@@ -16,7 +16,6 @@ use crate::swoq_interface::{
 #[derive(Debug)]
 pub enum SwoqError {
     StartFailed { result: swoq_interface::StartResult },
-    ActFailed { result: swoq_interface::ActResult },
 }
 
 impl fmt::Display for SwoqError {
@@ -24,9 +23,6 @@ impl fmt::Display for SwoqError {
         match self {
             SwoqError::StartFailed { result } => {
                 write!(formatter, "Start failed (result {})", result.as_str_name())
-            }
-            SwoqError::ActFailed { result } => {
-                write!(formatter, "Act failed (result {})", result.as_str_name())
             }
         }
     }
@@ -124,11 +120,12 @@ impl<'c> Game<'c> {
     pub async fn act(
         &mut self,
         action: swoq_interface::DirectedAction,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        action2: Option<swoq_interface::DirectedAction>,
+    ) -> Result<swoq_interface::ActResult, Box<dyn std::error::Error>> {
         let request = ActRequest {
             game_id: self.game_id.clone(),
             action: Some(action as i32),
-            action2: None, // For level 12+ two-player control
+            action2: action2.map(|a| a as i32), // For level 12+ two-player control
         };
         let response = self.client.act(request.clone()).await?.into_inner();
         let result = swoq_interface::ActResult::try_from(response.result).unwrap();
@@ -138,11 +135,12 @@ impl<'c> Game<'c> {
         }
 
         if result != swoq_interface::ActResult::Ok {
-            return Err(Box::new(SwoqError::ActFailed { result }));
+            self.state = response.state.unwrap();
+            return Ok(result);
         }
 
         self.state = response.state.unwrap();
-        Ok(())
+        Ok(result)
     }
 }
 

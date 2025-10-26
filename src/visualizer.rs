@@ -19,6 +19,7 @@ pub enum LogColor {
     Green,
     Yellow,
     White,
+    Red,
 }
 
 impl LogColor {
@@ -28,6 +29,7 @@ impl LogColor {
             LogColor::Green => Color::srgb(0.3, 1.0, 0.3),
             LogColor::Yellow => Color::srgb(1.0, 0.8, 0.3),
             LogColor::White => Color::srgb(0.9, 0.9, 0.9),
+            LogColor::Red => Color::srgb(1.0, 0.3, 0.3),
         }
     }
 }
@@ -397,12 +399,12 @@ fn render_world_state(
         ));
     }
 
-    // Render unexplored frontier (positions that can be reached but haven't been explored yet)
-    for pos in &world_state.player().unexplored_frontier {
+    // Render unexplored frontier for Player 1 (positions that can be reached but haven't been explored yet)
+    for pos in &world_state.players[0].unexplored_frontier {
         let x = center_x + (pos.x as f32 * TILE_SIZE);
         let y = center_y - (pos.y as f32 * TILE_SIZE);
 
-        // Draw frontier as a semi-transparent cyan square
+        // Draw Player 1 frontier as a semi-transparent cyan square
         commands.spawn((
             Sprite {
                 color: Color::srgba(0.0, 1.0, 1.0, 0.3), // Bright cyan, 30% opacity
@@ -412,6 +414,25 @@ fn render_world_state(
             Transform::from_xyz(x, y, 0.5), // z=0.5 to be above tiles but below player
             MapEntity,
         ));
+    }
+
+    // Render unexplored frontier for Player 2 if available
+    if world_state.players.len() > 1 {
+        for pos in &world_state.players[1].unexplored_frontier {
+            let x = center_x + (pos.x as f32 * TILE_SIZE);
+            let y = center_y - (pos.y as f32 * TILE_SIZE);
+
+            // Draw Player 2 frontier as a semi-transparent magenta square
+            commands.spawn((
+                Sprite {
+                    color: Color::srgba(1.0, 0.0, 1.0, 0.3), // Bright magenta, 30% opacity
+                    custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                    ..default()
+                },
+                Transform::from_xyz(x, y, 0.5), // z=0.5 to be above tiles but below player
+                MapEntity,
+            ));
+        }
     }
 
     // Render colored borders around boulders on pressure plates
@@ -449,64 +470,102 @@ fn render_world_state(
         spawn_tile_border(commands, x, y, Color::srgb(0.0, 0.8, 1.0), 3.0, 0.55);
     }
 
-    // Render current path (if available)
-    if let Some(ref path) = world_state.player().current_path {
+    // Render current path for Player 1 (if available)
+    if let Some(ref path) = world_state.players[0].current_path {
         for pos in path.iter() {
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);
 
-            // Draw path as yellow outline border
+            // Draw Player 1 path as yellow outline border
             spawn_tile_border(commands, x, y, Color::srgb(1.0, 1.0, 0.0), 2.0, 0.6);
         }
     }
 
-    // Render current destination (if available)
-    if let Some(dest) = world_state.player().current_destination {
+    // Render current path for Player 2 (if available)
+    if world_state.players.len() > 1
+        && let Some(ref path) = world_state.players[1].current_path
+    {
+        for pos in path.iter() {
+            let x = center_x + (pos.x as f32 * TILE_SIZE);
+            let y = center_y - (pos.y as f32 * TILE_SIZE);
+
+            // Draw Player 2 path as orange outline border
+            spawn_tile_border(commands, x, y, Color::srgb(1.0, 0.6, 0.0), 2.0, 0.6);
+        }
+    }
+
+    // Render current destination for Player 1 (if available)
+    if let Some(dest) = world_state.players[0].current_destination {
         let x = center_x + (dest.x as f32 * TILE_SIZE);
         let y = center_y - (dest.y as f32 * TILE_SIZE);
 
-        // Draw destination as bright red outline border (thicker)
+        // Draw Player 1 destination as bright red outline border (thicker)
         spawn_tile_border(commands, x, y, Color::srgb(1.0, 0.0, 0.0), 3.0, 0.7);
     }
 
-    // Render the player
-    let player_x = center_x + (world_state.player().position.x as f32 * TILE_SIZE);
-    let player_y = center_y - (world_state.player().position.y as f32 * TILE_SIZE);
+    // Render current destination for Player 2 (if available)
+    if world_state.players.len() > 1
+        && let Some(dest) = world_state.players[1].current_destination
+    {
+        let x = center_x + (dest.x as f32 * TILE_SIZE);
+        let y = center_y - (dest.y as f32 * TILE_SIZE);
 
-    commands.spawn((
-        Sprite {
-            image: tile_assets.player.clone(),
-            custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
-            ..default()
-        },
-        Transform::from_xyz(player_x, player_y, 1.0),
-        MapEntity,
-    ));
+        // Draw Player 2 destination as bright pink outline border (thicker)
+        spawn_tile_border(commands, x, y, Color::srgb(1.0, 0.0, 0.6), 3.0, 0.7);
+    }
+
+    // Render potential enemy locations with purple outline
+    for pos in world_state.potential_enemy_locations.iter() {
+        let x = center_x + (pos.x as f32 * TILE_SIZE);
+        let y = center_y - (pos.y as f32 * TILE_SIZE);
+
+        // Draw potential enemy location as purple outline border
+        spawn_tile_border(commands, x, y, Color::srgb(0.7, 0.0, 1.0), 2.0, 0.65);
+    }
+
+    // Render the players
+    for player in world_state.players.iter() {
+        if !player.is_active {
+            continue;
+        }
+
+        let player_x = center_x + (player.position.x as f32 * TILE_SIZE);
+        let player_y = center_y - (player.position.y as f32 * TILE_SIZE);
+
+        commands.spawn((
+            Sprite {
+                image: tile_assets.player.clone(),
+                custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                ..default()
+            },
+            Transform::from_xyz(player_x, player_y, 1.0),
+            MapEntity,
+        ));
+    }
 
     // Add text overlay with game info - Line 1
-    let p1 = world_state.player();
-    let p1_goal = p1.previous_goal
+    let p1 = &world_state.players[0];
+    let p1_goal = p1
+        .current_goal
         .as_ref()
-        .map(|g| format!("{:?}", g))
+        .map(format_goal)
         .unwrap_or_else(|| "None".to_string());
-    
+
     let p1_inv = if p1.has_sword {
-        format!("Sword+{:?}", p1.inventory)
+        match p1.inventory {
+            crate::swoq_interface::Inventory::None => "Sword".to_string(),
+            inv => format!("Sword+{:?}", inv),
+        }
     } else {
         format!("{:?}", p1.inventory)
     };
-    
+
     let line1_left = format!("Level:{:<4} Tick:{:<6}", world_state.level, world_state.tick);
-    let line1_right = format!(
-        "P1  HP:{:<3}  Inv:{:<16}  Goal:{}",
-        p1.health,
-        p1_inv,
-        p1_goal
-    );
-    let line1_text = format!("{:<28}{}", line1_left, line1_right);
-    
+    let line1_right = format!("P1  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p1.health, p1_inv, p1_goal);
+
+    // Level and Tick - left aligned
     commands.spawn((
-        Text::new(line1_text),
+        Text::new(line1_left),
         TextFont {
             font_size: 18.0,
             font: default(),
@@ -522,30 +581,46 @@ fn render_world_state(
         MapEntity,
     ));
 
-    // Add Line 2 for Player 2 if available
+    // Player 1 stats - right aligned
+    commands.spawn((
+        Text::new(line1_right),
+        TextFont {
+            font_size: 18.0,
+            font: default(),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            right: Val::Px(LOG_PANE_WIDTH + 10.0),
+            ..default()
+        },
+        MapEntity,
+    ));
+
+    // Add Player 2 stats if available (right aligned, always on line 2)
     if world_state.players.len() > 1 {
         let p2 = &world_state.players[1];
-        let p2_goal = p2.previous_goal
+        let p2_goal = p2
+            .current_goal
             .as_ref()
-            .map(|g| format!("{:?}", g))
+            .map(format_goal)
             .unwrap_or_else(|| "None".to_string());
-        
+
         let p2_inv = if p2.has_sword {
-            format!("Sword+{:?}", p2.inventory)
+            match p2.inventory {
+                crate::swoq_interface::Inventory::None => "Sword".to_string(),
+                inv => format!("Sword+{:?}", inv),
+            }
         } else {
             format!("{:?}", p2.inventory)
         };
-        
-        let line2_text = format!(
-            "{:<28}P2  HP:{:<3}  Inv:{:<16}  Goal:{}",
-            "",
-            p2.health,
-            p2_inv,
-            p2_goal
-        );
-        
+
+        let p2_text = format!("P2  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p2.health, p2_inv, p2_goal);
+
         commands.spawn((
-            Text::new(line2_text),
+            Text::new(p2_text),
             TextFont {
                 font_size: 18.0,
                 font: default(),
@@ -554,13 +629,36 @@ fn render_world_state(
             TextColor(Color::srgb(0.4, 0.8, 1.0)), // Cyan color for player 2
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(32.0),
-                left: Val::Px(10.0),
+                top: Val::Px(32.0), // Line 2
+                right: Val::Px(LOG_PANE_WIDTH + 10.0),
                 ..default()
             },
             MapEntity,
         ));
     }
+
+    // Add loop statistics on line 3 (left aligned) - always show to maintain consistent layout
+    let line3_left = format!(
+        "Runs - Success:{:<4} Failed:{:<4}",
+        world_state.successful_runs, world_state.failed_runs
+    );
+
+    commands.spawn((
+        Text::new(line3_left),
+        TextFont {
+            font_size: 18.0,
+            font: default(),
+            ..default()
+        },
+        TextColor(Color::srgb(0.7, 0.7, 0.7)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(32.0), // Line 3
+            left: Val::Px(10.0),
+            ..default()
+        },
+        MapEntity,
+    ));
 }
 
 fn update_log_pane(
@@ -626,9 +724,9 @@ fn update_log_pane(
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(MAP_WIDTH + 10.0),
-                top: Val::Px(50.0),
+                top: Val::Px(10.0),
                 width: Val::Px(LOG_PANE_WIDTH - 20.0),
-                height: Val::Px(WINDOW_HEIGHT - 60.0),
+                height: Val::Px(WINDOW_HEIGHT - 20.0),
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
@@ -656,6 +754,25 @@ fn update_log_pane(
             .id();
 
         commands.entity(container).add_child(text_entity);
+    }
+}
+
+fn format_goal(goal: &crate::goal::Goal) -> String {
+    use crate::goal::Goal;
+    match goal {
+        Goal::Explore => "Explore".to_string(),
+        Goal::GetKey(color) => format!("GetKey({:?})", color),
+        Goal::OpenDoor(color) => format!("OpenDoor({:?})", color),
+        Goal::StepOnPressurePlate(color, _pos) => format!("StepOnPlate({:?})", color),
+        Goal::PickupSword => "PickupSword".to_string(),
+        Goal::PickupHealth => "PickupHealth".to_string(),
+        Goal::AvoidEnemy(_pos) => "AvoidEnemy".to_string(),
+        Goal::KillEnemy(_pos) => "KillEnemy".to_string(),
+        Goal::FetchBoulder(_pos) => "FetchBoulder".to_string(),
+        Goal::DropBoulder => "DropBoulder".to_string(),
+        Goal::DropBoulderOnPlate(color, _pos) => format!("DropOnPlate({:?})", color),
+        Goal::ReachExit => "ReachExit".to_string(),
+        Goal::RandomExplore(_pos) => "RandomExplore".to_string(),
     }
 }
 

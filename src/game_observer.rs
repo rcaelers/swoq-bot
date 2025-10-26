@@ -1,5 +1,5 @@
 use crate::goal::Goal;
-use crate::swoq_interface::{DirectedAction, GameStatus, State};
+use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 
 /// Trait for observing game events during execution
@@ -25,6 +25,15 @@ pub trait GameObserver {
 
     /// Called when an action is selected
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState);
+
+    /// Called when an action result is received from the server
+    fn on_action_result(
+        &mut self,
+        action: DirectedAction,
+        action2: Option<DirectedAction>,
+        result: ActResult,
+        world: &WorldState,
+    );
 
     /// Called when the game finishes
     fn on_game_finished(&mut self, status: GameStatus, final_tick: i32);

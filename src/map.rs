@@ -56,29 +56,95 @@ impl Map {
         match self.get(pos) {
             Some(
                 Tile::Empty
-                | Tile::Exit
-                | Tile::Player
-                | Tile::Sword
-                | Tile::Health
+                | Tile::Player // TODO: check 2UP conflict
                 | Tile::PressurePlateRed
                 | Tile::PressurePlateGreen
                 | Tile::PressurePlateBlue
                 | Tile::Treasure
-                | Tile::Unknown, // Fog of war - assume walkable
             ) => true,
             // Keys: always avoid unless it's the destination
-            Some(Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue) => {
+            Some(Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue | Tile::Sword | Tile::Health | Tile::Exit  | Tile::Unknown) => {
                 // Allow walking on the destination key, avoid all others
                 *pos == goal
             }
-            // Doors: never walkable, must use a key from adjacent tile
-            Some(Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue) => false,
-            None => true, // Never seen tiles - assume walkable
+            None => *pos == goal,
             _ => false,
         }
     }
 
     pub fn find_path(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
         AStar::find_path(self, start, goal, |pos, goal| self.is_walkable(pos, goal))
+    }
+
+    /// Compute all reachable positions from start using a walkability checker.
+    /// Returns a HashSet of reachable frontier positions
+    /// (positions that are Unknown or None and adjacent to explored/known tiles).
+    /// This combines reachability checking with frontier detection in a single pass.
+    #[tracing::instrument(level = "trace", skip(self, is_walkable), fields(start_x = start.x, start_y = start.y))]
+    pub fn compute_reachable_positions<F>(
+        &self,
+        start: Position,
+        is_walkable: F,
+    ) -> std::collections::HashSet<Position>
+    where
+        F: Fn(&Position) -> bool,
+    {
+        let mut reachable = std::collections::HashSet::new();
+        let mut frontier = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        reachable.insert(start);
+        queue.push_back(start);
+
+        while let Some(current) = queue.pop_front() {
+            for neighbor in current.neighbors() {
+                // Skip if already visited
+                if reachable.contains(&neighbor) {
+                    continue;
+                }
+
+                // Check bounds
+                if neighbor.x < 0
+                    || neighbor.x >= self.width
+                    || neighbor.y < 0
+                    || neighbor.y >= self.height
+                {
+                    continue;
+                }
+
+                // Check if this is an unexplored tile (frontier candidate)
+                let is_unexplored =
+                    matches!(self.get(&neighbor), Some(crate::swoq_interface::Tile::Unknown) | None);
+
+                // Use the provided walkability checker
+                let walkable = is_walkable(&neighbor);
+
+                if walkable {
+                    reachable.insert(neighbor);
+                    queue.push_back(neighbor);
+
+                    // If this is unexplored and we reached it from an explored tile,
+                    // it's part of the frontier
+                    if is_unexplored {
+                        // Check if current position is explored (not Unknown/None)
+                        let current_is_explored = match self.get(&current) {
+                            Some(crate::swoq_interface::Tile::Unknown) | None => false,
+                            Some(_) => true,
+                        };
+
+                        if current_is_explored {
+                            frontier.insert(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::trace!(
+            frontier_size = frontier.len(),
+            reachable_size = reachable.len(),
+            "Frontier computation complete"
+        );
+        frontier
     }
 }

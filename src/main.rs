@@ -2,6 +2,7 @@ mod swoq_interface {
     tonic::include_proto!("swoq.interface");
 }
 mod boulder_tracker;
+mod composite_observer;
 mod default_observer;
 mod game;
 mod game_observer;
@@ -22,6 +23,7 @@ use std::env;
 use std::sync::{Arc, Mutex, mpsc};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+use composite_observer::CompositeObserver;
 use default_observer::DefaultObserver;
 use game::Game;
 use swoq::GameConnection;
@@ -52,9 +54,10 @@ async fn run_game_loop(
     mut game: Game,
     level: Option<i32>,
     seed: Option<i32>,
+    loop_enabled: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // If level is specified, restart the game indefinitely when it ends
-    if level.is_some() {
+    // If loop is enabled, restart the game indefinitely when it ends
+    if loop_enabled {
         loop {
             tracing::info!("Starting game for level {:?}", level);
             if let Err(e) = game.run(level, seed).await {
@@ -86,6 +89,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
+    let loop_enabled = env::var("SWOQ_LOOP")
+        .ok()
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false);
 
     tracing::info!("Visualizer enabled: {}", enable_viz);
 
@@ -104,8 +111,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let connection = GameConnection::new(user_id, user_name, host, replays_folder)
                     .await
                     .unwrap();
-                let game = Game::new(connection, VisualizingObserver::new(game_state, log_tx));
-                let _ = run_game_loop(game, level, seed).await;
+                let composite = CompositeObserver::new(vec![
+                    Box::new(DefaultObserver),
+                    Box::new(VisualizingObserver::new(game_state, log_tx)),
+                ]);
+                let game = Game::new(connection, composite);
+                let _ = run_game_loop(game, level, seed, loop_enabled).await;
             });
         });
 
@@ -113,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         let connection = GameConnection::new(user_id, user_name, host, replays_folder).await?;
         let game = Game::new(connection, DefaultObserver);
-        run_game_loop(game, level, seed).await?;
+        run_game_loop(game, level, seed, loop_enabled).await?;
     }
 
     Ok(())

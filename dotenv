@@ -2,8 +2,8 @@
 SWOQ_HOST=localhost:5001
 SWOQ_USER_ID=<redacted>
 SWOQ_USER_NAME=rob
-#SWOQ_LEVEL=01 # Or leave empty for quest
 #SWOQ_SEED=42 # Set to define seed for training level
+SWOQ_LOOP=true # Set to true to restart the game after completion (works for both levels and quests)
 SWOQ_REPLAYS_FOLDER=./Replays/
 SWOQ_VISUALIZER=true
-#SWOQ_ASSETS_FOLDER=
+SWOQ_ASSETS_FOLDER=/Users/robc/src/swoc/bot/assets

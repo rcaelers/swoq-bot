@@ -14,6 +14,7 @@ Copyright (c) 2025 Ralph Schiedon.
   - [x] Show logging pane
 - [ ] Refactoring vibe coded parts
   - [x] integrate_surroundings
+  - [ ] generalize items handling (health, keys, swords)
   - [ ] ...
 - [ ] Level 12: 2 Player mode
 - [ ] AI strategies
