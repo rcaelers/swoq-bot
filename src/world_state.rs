@@ -440,14 +440,16 @@ impl WorldState {
         );
 
         // Update pressure plates using ColoredItemTracker
-        self.pressure_plates.update(
+        // Special case: pressure plates are still there even if a player is standing on them
+        let player_positions: Vec<Position> = self.players.iter().map(|p| p.position).collect();
+        self.pressure_plates.update_with_positions(
             seen_items.pressure_plates,
             &self.map,
-            |tile| {
+            |tile, pos| {
                 matches!(
                     tile,
                     Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
-                )
+                ) || (matches!(tile, Tile::Player) && player_positions.contains(pos))
             },
             all_bounds,
         );
@@ -656,13 +658,6 @@ impl WorldState {
                     output.push_str("\x1b[1;33m1\x1b[0m"); // Bright yellow
                 } else if self.players.get(1).is_some_and(|p| pos == p.position) {
                     output.push_str("\x1b[1;36m2\x1b[0m"); // Bright cyan
-                } else if self
-                    .players
-                    .first()
-                    .is_some_and(|p| p.unexplored_frontier.contains(&pos))
-                {
-                    // Show unexplored frontier
-                    output.push_str("\x1b[96m░\x1b[0m"); // Bright cyan
                 } else {
                     // Render the tile
                     let tile = self.map.get(&pos).copied();

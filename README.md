@@ -15,8 +15,9 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] Refactoring vibe coded parts
   - [x] integrate_surroundings
   - [ ] generalize items handling (health, keys, swords)
+  - [ ] Simplify CoopPressurePlateDoorStrategy
   - [ ] ...
-- [ ] Level 12: 2 Player mode
+- [x] Level 12: 2 Player mode
 - [ ] AI strategies
 - [ ] Strategy improvements / bug fixes
   - [x] incorrect enemies present in HuntEnemyWithSwordStrategy
@@ -26,7 +27,9 @@ Copyright (c) 2025 Ralph Schiedon.
   - [ ] Enemy in range check should use pathfinder
   - [ ] Unexplored frontier: add unknown->known transitions
   - [x] If no further goals, pick random explored location in search for enemies
-
+  - [ ] Support states in strategies
+  - [ ] Don't step on pressure plates when other player tries to open the door with key (L16)
+  
 ## License
 
 MIT

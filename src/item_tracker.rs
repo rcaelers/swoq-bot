@@ -112,6 +112,21 @@ impl ColoredItemTracker {
     ) where
         F: Fn(&Tile) -> bool,
     {
+        self.update_with_positions(seen_items, map, |tile, _pos| validator(tile), all_visibility_bounds);
+    }
+
+    /// Update positions with a validator that can also check the position
+    /// This is useful for cases like pressure plates where a player standing on them shouldn't remove them
+    #[tracing::instrument(level = "trace", skip(self, map, validator, all_visibility_bounds))]
+    pub fn update_with_positions<F>(
+        &mut self,
+        seen_items: HashMap<Color, Vec<Position>>,
+        map: &Map,
+        validator: F,
+        all_visibility_bounds: &[Bounds],
+    ) where
+        F: Fn(&Tile, &Position) -> bool,
+    {
         // Merge newly seen items with previously known ones
         for (color, new_positions) in seen_items {
             self.positions
@@ -140,7 +155,7 @@ impl ColoredItemTracker {
                 if is_visible {
                     // We can see this position (by at least one player), so check if item is still there
                     if let Some(tile) = map.get(pos) {
-                        validator(tile)
+                        validator(tile, pos)
                     } else {
                         true // Keep if we haven't seen this position
                     }
