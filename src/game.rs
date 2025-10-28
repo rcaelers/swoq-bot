@@ -98,7 +98,7 @@ impl Game {
             if act_result != swoq_interface::ActResult::Ok {
                 println!("\n❌ Action failed with result: {:?}", act_result);
                 println!("🛑 Stopping game due to action error");
-                break;
+                return Err(format!("Action failed: {:?}", act_result).into());
             }
 
             let tick_duration = tick_start.elapsed();

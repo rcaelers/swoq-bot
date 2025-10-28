@@ -60,12 +60,19 @@ async fn run_game_loop(
     if loop_enabled {
         loop {
             tracing::info!("Starting game for level {:?}", level);
-            if let Err(e) = game.run(level, seed).await {
-                tracing::error!("Game error: {:?}", e);
+            match game.run(level, seed).await {
+                Ok(_) => {
+                    tracing::info!("Game ended successfully, restarting...");
+                }
+                Err(e) => {
+                    tracing::error!("Game failed: {:?}", e);
+                    tracing::info!("Stopping loop mode due to game failure");
+                    break;
+                }
             }
-            tracing::info!("Game ended, restarting...");
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
+        Ok(())
     } else {
         game.run(level, seed).await
     }
