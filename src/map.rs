@@ -200,4 +200,11 @@ impl Map {
         );
         frontier
     }
+
+    /// Check if there are any boulders visible on the map
+    pub fn has_boulders(&self) -> bool {
+        self.tiles
+            .values()
+            .any(|tile| matches!(tile, Tile::Boulder))
+    }
 }

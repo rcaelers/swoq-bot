@@ -764,4 +764,16 @@ impl WorldState {
             None => "?".to_string(), // Never received any data (unexplored)
         }
     }
+
+    /// Check if we're in 2-player mode
+    pub fn is_two_player_mode(&self) -> bool {
+        self.players.len() == 2
+    }
+
+    /// Check if any player still has unexplored frontier tiles
+    pub fn any_player_has_frontier(&self) -> bool {
+        self.players
+            .iter()
+            .any(|p| !p.unexplored_frontier.is_empty())
+    }
 }
