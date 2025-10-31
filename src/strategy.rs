@@ -26,11 +26,10 @@ impl StrategyPlanner {
     pub fn new() -> Self {
         Self {
             strategies: vec![
-                Box::new(CooperativeDoorPassageStrategy),
                 Box::new(AttackOrFleeEnemyStrategy),
                 Box::new(PickupHealthStrategy),
                 Box::new(PickupSwordStrategy),
-                Box::new(CooperativeDoorPassageStrategySetup::new()),
+                Box::new(CooperativeDoorPassageStrategy::new()),
                 Box::new(DropBoulderOnPlateStrategy),
                 Box::new(DropBoulderStrategy),
                 Box::new(UsePressurePlateForDoorStrategy),
@@ -211,15 +210,23 @@ pub trait SelectGoal {
 }
 
 pub struct AttackOrFleeEnemyStrategy;
-pub struct CooperativeDoorPassageStrategy;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CooperativeDoorPassageState {
+    Setup,
+    Execute,
+}
+
+pub struct CooperativeDoorPassageStrategy {
+    state: CooperativeDoorPassageState,
+    // Track when each color door was last opened using a plate (tick number)
+    last_plate_door_usage: HashMap<Color, i32>,
+}
+
 pub struct PickupHealthStrategy;
 pub struct PickupSwordStrategy;
 pub struct DropBoulderOnPlateStrategy;
 pub struct DropBoulderStrategy;
-pub struct CooperativeDoorPassageStrategySetup {
-    // Track when each color door was last opened using a plate (tick number)
-    last_plate_door_usage: HashMap<Color, i32>,
-}
 pub struct UsePressurePlateForDoorStrategy;
 pub struct OpenDoorWithKeyStrategy;
 pub struct GetKeyForDoorStrategy;
@@ -259,16 +266,39 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
     }
 }
 
-impl SelectGoal for CooperativeDoorPassageStrategy {
-    fn strategy_type(&self) -> StrategyType {
-        StrategyType::Coop
+impl CooperativeDoorPassageStrategy {
+    pub fn new() -> Self {
+        Self {
+            state: CooperativeDoorPassageState::Setup,
+            last_plate_door_usage: HashMap::new(),
+        }
     }
 
-    fn try_select_coop(
-        &mut self,
-        world: &WorldState,
-        _current_goals: &[Option<Goal>],
-    ) -> Vec<Option<Goal>> {
+    /// Check if there's an active cooperative door passage in progress
+    fn has_active_door_cooperation(&self, world: &WorldState) -> bool {
+        world.players.iter().enumerate().any(|(idx, p)| {
+            if let Some(Goal::WaitOnPressurePlate(color, plate_pos)) = &p.previous_goal {
+                let other_idx = 1 - idx;
+                if let Some(Goal::PassThroughDoor(other_color, door_pos, target_pos)) =
+                    &world.players[other_idx].previous_goal
+                    && color == other_color
+                {
+                    debug!(
+                        "Active cooperation detected - P{} waiting on plate at {:?}, P{} passing through door at {:?} to {:?}",
+                        idx + 1,
+                        plate_pos,
+                        other_idx + 1,
+                        door_pos,
+                        target_pos
+                    );
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    fn execute_phase(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
         // Only works in 2-player mode
         if world.players.len() != 2 {
             return vec![None; 2];
@@ -455,7 +485,298 @@ impl SelectGoal for CooperativeDoorPassageStrategy {
         }
 
         debug!("CooperativeDoorPassageStrategy: No active cooperation found");
+        
+        // If no active cooperation found, transition back to Setup state
+        self.state = CooperativeDoorPassageState::Setup;
 
+        vec![None; world.players.len()]
+    }
+
+    /// Calculate pathfinding for a single player to the plate and door
+    fn player_can_reach_plate_and_door(
+        &self,
+        world: &WorldState,
+        player_pos: Position,
+        plate_pos: Position,
+        door_pos: Position,
+    ) -> PlayerReachability {
+        let path_to_plate = world.map.find_path(player_pos, plate_pos);
+        let can_reach_plate = path_to_plate.is_some();
+        let distance_to_plate = path_to_plate
+            .as_ref()
+            .map(|p| p.len())
+            .unwrap_or(i32::MAX as usize);
+
+        let path_to_door = door_pos.neighbors().iter().find_map(|&neighbor| {
+            if matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty)) {
+                world.map.find_path(player_pos, neighbor)
+            } else {
+                None
+            }
+        });
+        let can_reach_door = path_to_door.is_some();
+
+        PlayerReachability {
+            can_reach_plate,
+            can_reach_door,
+            distance_to_plate,
+            path_to_door,
+        }
+    }
+
+    /// Calculate the target position one step beyond the door
+    fn calculate_target_beyond_door(
+        &self,
+        door_pos: Position,
+        path_to_door: &[Position],
+    ) -> Option<Position> {
+        if path_to_door.is_empty() {
+            return None;
+        }
+        let last = path_to_door[path_to_door.len() - 1];
+        let dx = door_pos.x - last.x;
+        let dy = door_pos.y - last.y;
+        Some(Position {
+            x: door_pos.x + dx,
+            y: door_pos.y + dy,
+        })
+    }
+
+    /// Check if either player can already reach the target position
+    fn is_target_already_reachable(&self, world: &WorldState, target_pos: Position) -> bool {
+        world
+            .map
+            .find_path(world.players[0].position, target_pos)
+            .is_some()
+            || world
+                .map
+                .find_path(world.players[1].position, target_pos)
+                .is_some()
+    }
+
+    fn setup_phase(&mut self, world: &WorldState, current_goals: &[Option<Goal>]) -> Vec<Option<Goal>> {
+        debug!("CoopPressurePlateDoorStrategy: Starting setup phase evaluation");
+
+        if !world.is_two_player_mode() {
+            debug!(
+                "CoopPressurePlateDoorStrategy: Not 2-player mode ({}), skipping",
+                world.players.len()
+            );
+            return vec![None; world.players.len()];
+        }
+
+        if !StrategyPlanner::all_players_have_no_goals(current_goals) {
+            debug!(
+                "CoopPressurePlateDoorStrategy: Some players already have goals, skipping new assignment"
+            );
+            return vec![None; world.players.len()];
+        }
+
+        if world.any_player_has_frontier() {
+            debug!(
+                "CoopPressurePlateDoorStrategy: Some players still have unexplored frontier, continuing exploration first"
+            );
+            return vec![None; world.players.len()];
+        }
+
+        if world.map.has_boulders() {
+            debug!(
+                "CoopPressurePlateDoorStrategy: Boulders known, preferring boulder solution"
+            );
+            return vec![None; world.players.len()];
+        }
+
+        // Sort colors by least recently used (prefer colors not used yet or used longest ago)
+        let mut colors_by_usage: Vec<Color> = vec![Color::Red, Color::Green, Color::Blue];
+        colors_by_usage.sort_by_key(|&color| {
+            self
+                .last_plate_door_usage
+                .get(&color)
+                .copied()
+                .unwrap_or(i32::MIN)
+        });
+        debug!(
+            "CoopPressurePlateDoorStrategy: Checking colors in priority order: {:?}",
+            colors_by_usage
+        );
+
+        // Find a pressure plate and door of the same color
+        for color in colors_by_usage {
+            debug!("CoopPressurePlateDoorStrategy: Checking {:?} color", color);
+
+            // Skip if any player has a key for this color
+            if world.players.iter().any(|p| world.has_key(p, color)) {
+                debug!("CoopPressurePlateDoorStrategy: Player has {:?} key, skipping", color);
+                continue;
+            }
+
+            let door_positions = match world.doors.get_positions(color) {
+                Some(pos) => pos,
+                None => {
+                    debug!("CoopPressurePlateDoorStrategy: No {:?} doors found", color);
+                    continue;
+                }
+            };
+            if door_positions.is_empty() {
+                debug!("CoopPressurePlateDoorStrategy: {:?} door positions empty", color);
+                continue;
+            }
+
+            debug!(
+                "CoopPressurePlateDoorStrategy: Found {} {:?} doors",
+                door_positions.len(),
+                color
+            );
+
+            let plates = match world.pressure_plates.get_positions(color) {
+                Some(p) => p,
+                None => {
+                    debug!(
+                        "CoopPressurePlateDoorStrategy: No {:?} pressure plates found",
+                        color
+                    );
+                    continue;
+                }
+            };
+
+            debug!("CoopPressurePlateDoorStrategy: Found {} {:?} plates", plates.len(), color);
+
+            let last_usage_tick = self
+                .last_plate_door_usage
+                .get(&color)
+                .copied()
+                .unwrap_or(i32::MIN);
+            debug!(
+                "CoopPressurePlateDoorStrategy: {:?} door last used at tick {} (current tick: {})",
+                color,
+                if last_usage_tick == i32::MIN {
+                    "never".to_string()
+                } else {
+                    last_usage_tick.to_string()
+                },
+                world.tick
+            );
+
+            // Find a pressure plate that's reachable by at least one player
+            for &plate_pos in plates {
+                debug!("CoopPressurePlateDoorStrategy: Checking plate at {:?}", plate_pos);
+
+                // Check if there's a door that's NOT adjacent to this plate
+                // (we want to find doors that need someone to wait on the plate)
+                for &door_pos in door_positions {
+                    let p0_reach = self.player_can_reach_plate_and_door(
+                        world,
+                        world.players[0].position,
+                        plate_pos,
+                        door_pos,
+                    );
+                    let p1_reach = self.player_can_reach_plate_and_door(
+                        world,
+                        world.players[1].position,
+                        plate_pos,
+                        door_pos,
+                    );
+
+                    debug!(
+                        "CoopPressurePlateDoorStrategy: P1 path dist to plate: {}, P2 path dist to plate: {}",
+                        if p0_reach.distance_to_plate == i32::MAX as usize {
+                            "unreachable".to_string()
+                        } else {
+                            p0_reach.distance_to_plate.to_string()
+                        },
+                        if p1_reach.distance_to_plate == i32::MAX as usize {
+                            "unreachable".to_string()
+                        } else {
+                            p1_reach.distance_to_plate.to_string()
+                        }
+                    );
+
+                    debug!(
+                        "CoopPressurePlateDoorStrategy: P1 can reach plate: {}, door: {}",
+                        p0_reach.can_reach_plate, p0_reach.can_reach_door
+                    );
+                    debug!(
+                        "CoopPressurePlateDoorStrategy: P2 can reach plate: {}, door: {}",
+                        p1_reach.can_reach_plate, p1_reach.can_reach_door
+                    );
+
+                    // CRITICAL: Both players must be able to reach BOTH the plate AND the door
+                    let both_can_reach_plate = p0_reach.can_reach_plate && p1_reach.can_reach_plate;
+                    let both_can_reach_door = p0_reach.can_reach_door && p1_reach.can_reach_door;
+
+                    if !both_can_reach_plate || !both_can_reach_door {
+                        debug!(
+                            "CoopPressurePlateDoorStrategy: Players on different sides of door - P1 plate:{} door:{}, P2 plate:{} door:{}",
+                            p0_reach.can_reach_plate,
+                            p0_reach.can_reach_door,
+                            p1_reach.can_reach_plate,
+                            p1_reach.can_reach_door
+                        );
+                        continue;
+                    }
+
+                    // Assign roles: closer player to plate waits, other goes through door
+                    let (waiter_idx, passer_idx, passer_reach) =
+                        if p0_reach.distance_to_plate <= p1_reach.distance_to_plate {
+                            (0, 1, &p1_reach)
+                        } else {
+                            (1, 0, &p0_reach)
+                        };
+
+                    if let Some(ref path_to_door) = passer_reach.path_to_door
+                        && let Some(target_pos) =
+                            self.calculate_target_beyond_door(door_pos, path_to_door)
+                    {
+                        let last = path_to_door[path_to_door.len() - 1];
+                        debug!(
+                            "CoopPressurePlateDoorStrategy: Door at {:?}, neighbor at {:?}, target {:?}",
+                            door_pos, last, target_pos
+                        );
+
+                        if self.is_target_already_reachable(world, target_pos) {
+                            debug!(
+                                "CoopPressurePlateDoorStrategy: Target {:?} is already reachable, no cooperation needed",
+                                target_pos
+                            );
+                            continue;
+                        }
+
+                        // Record this door color as being used with a plate at this tick
+                        self
+                            .last_plate_door_usage
+                            .insert(color, world.tick);
+                        
+                        // Transition to Execute state
+                        self.state = CooperativeDoorPassageState::Execute;
+
+                        debug!(
+                            "CoopPressurePlateDoorStrategy: ✓ SELECTED - P{} waits on {:?} plate at {:?}, P{} goes through door at {:?} to target {:?} (last used: tick {})",
+                            waiter_idx + 1,
+                            color,
+                            plate_pos,
+                            passer_idx + 1,
+                            door_pos,
+                            target_pos,
+                            world.tick
+                        );
+
+                        let mut goals = vec![None; 2];
+                        goals[waiter_idx] = Some(Goal::WaitOnPressurePlate(color, plate_pos));
+                        goals[passer_idx] = Some(Goal::PassThroughDoor(color, last, target_pos));
+                        return goals;
+                    }
+
+                    debug!(
+                        "CoopPressurePlateDoorStrategy: Could not calculate valid target for P{} through door at {:?}",
+                        passer_idx + 1,
+                        door_pos
+                    );
+                    continue;
+                }
+            }
+        }
+
+        debug!("CoopPressurePlateDoorStrategy: No suitable plate/door combination found");
         vec![None; world.players.len()]
     }
 }
@@ -746,103 +1067,18 @@ struct PlayerReachability {
     path_to_door: Option<Vec<Position>>,
 }
 
-impl CooperativeDoorPassageStrategySetup {
-    pub fn new() -> Self {
-        Self {
-            last_plate_door_usage: HashMap::new(),
-        }
-    }
-
-    /// Check if there's an active cooperative door passage in progress
-    fn has_active_door_cooperation(&self, world: &WorldState) -> bool {
-        world.players.iter().enumerate().any(|(idx, p)| {
-            if let Some(Goal::WaitOnPressurePlate(color, plate_pos)) = &p.previous_goal {
-                let other_idx = 1 - idx;
-                if let Some(Goal::PassThroughDoor(other_color, door_pos, target_pos)) =
-                    &world.players[other_idx].previous_goal
-                    && color == other_color
-                {
-                    debug!(
-                        "Active cooperation detected - P{} waiting on plate at {:?}, P{} passing through door at {:?} to {:?}",
-                        idx + 1,
-                        plate_pos,
-                        other_idx + 1,
-                        door_pos,
-                        target_pos
-                    );
-                    return true;
-                }
-            }
-            false
-        })
-    }
-
-    /// Calculate pathfinding for a single player to the plate and door
-    fn player_can_reach_plate_and_door(
-        &self,
-        world: &WorldState,
-        player_pos: Position,
-        plate_pos: Position,
-        door_pos: Position,
-    ) -> PlayerReachability {
-        let path_to_plate = world.map.find_path(player_pos, plate_pos);
-        let can_reach_plate = path_to_plate.is_some();
-        let distance_to_plate = path_to_plate
-            .as_ref()
-            .map(|p| p.len())
-            .unwrap_or(i32::MAX as usize);
-
-        let path_to_door = door_pos.neighbors().iter().find_map(|&neighbor| {
-            if matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty)) {
-                world.map.find_path(player_pos, neighbor)
-            } else {
-                None
-            }
-        });
-        let can_reach_door = path_to_door.is_some();
-
-        PlayerReachability {
-            can_reach_plate,
-            can_reach_door,
-            distance_to_plate,
-            path_to_door,
-        }
-    }
-
-    /// Calculate the target position one step beyond the door
-    fn calculate_target_beyond_door(
-        &self,
-        door_pos: Position,
-        path_to_door: &[Position],
-    ) -> Option<Position> {
-        if path_to_door.is_empty() {
-            return None;
-        }
-        let last = path_to_door[path_to_door.len() - 1];
-        let dx = door_pos.x - last.x;
-        let dy = door_pos.y - last.y;
-        Some(Position {
-            x: door_pos.x + dx,
-            y: door_pos.y + dy,
-        })
-    }
-
-    /// Check if either player can already reach the target position
-    fn is_target_already_reachable(&self, world: &WorldState, target_pos: Position) -> bool {
-        world
-            .map
-            .find_path(world.players[0].position, target_pos)
-            .is_some()
-            || world
-                .map
-                .find_path(world.players[1].position, target_pos)
-                .is_some()
-    }
-}
-
-impl SelectGoal for CooperativeDoorPassageStrategySetup {
+impl SelectGoal for CooperativeDoorPassageStrategy {
     fn strategy_type(&self) -> StrategyType {
         StrategyType::Coop
+    }
+
+    fn prioritize(&self, world: &WorldState) -> bool {
+        // In Execute state, prioritize if there's active cooperation
+        if self.state == CooperativeDoorPassageState::Execute {
+            self.has_active_door_cooperation(world)
+        } else {
+            false
+        }
     }
 
     fn try_select_coop(
@@ -850,233 +1086,10 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
-        debug!("CoopPressurePlateDoorStrategySetup: Starting evaluation");
-
-        if !world.is_two_player_mode() {
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Not 2-player mode ({}), skipping",
-                world.players.len()
-            );
-            return vec![None; world.players.len()];
+        match self.state {
+            CooperativeDoorPassageState::Setup => self.setup_phase(world, current_goals),
+            CooperativeDoorPassageState::Execute => self.execute_phase(world),
         }
-
-        if self.has_active_door_cooperation(world) {
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Maintaining active cooperation, not reassigning"
-            );
-            return vec![None; 2];
-        }
-
-        if !StrategyPlanner::all_players_have_no_goals(current_goals) {
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Some players already have goals, skipping new assignment"
-            );
-            return vec![None; world.players.len()];
-        }
-
-        if world.any_player_has_frontier() {
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Some players still have unexplored frontier, continuing exploration first"
-            );
-            return vec![None; world.players.len()];
-        }
-
-        if world.map.has_boulders() {
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Boulders known, preferring boulder solution"
-            );
-            return vec![None; world.players.len()];
-        }
-
-        // Sort colors by least recently used (prefer colors not used yet or used longest ago)
-        let mut colors_by_usage: Vec<Color> = vec![Color::Red, Color::Green, Color::Blue];
-        colors_by_usage.sort_by_key(|&color| {
-            self
-                .last_plate_door_usage
-                .get(&color)
-                .copied()
-                .unwrap_or(i32::MIN)
-        });
-        debug!(
-            "CoopPressurePlateDoorStrategySetup: Checking colors in priority order: {:?}",
-            colors_by_usage
-        );
-
-        // Find a pressure plate and door of the same color
-        for color in colors_by_usage {
-            debug!("CoopPressurePlateDoorStrategySetup: Checking {:?} color", color);
-
-            // Skip if any player has a key for this color
-            if world.players.iter().any(|p| world.has_key(p, color)) {
-                debug!("CoopPressurePlateDoorStrategySetup: Player has {:?} key, skipping", color);
-                continue;
-            }
-
-            let door_positions = match world.doors.get_positions(color) {
-                Some(pos) => pos,
-                None => {
-                    debug!("CoopPressurePlateDoorStrategySetup: No {:?} doors found", color);
-                    continue;
-                }
-            };
-            if door_positions.is_empty() {
-                debug!("CoopPressurePlateDoorStrategySetup: {:?} door positions empty", color);
-                continue;
-            }
-
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: Found {} {:?} doors",
-                door_positions.len(),
-                color
-            );
-
-            let plates = match world.pressure_plates.get_positions(color) {
-                Some(p) => p,
-                None => {
-                    debug!(
-                        "CoopPressurePlateDoorStrategySetup: No {:?} pressure plates found",
-                        color
-                    );
-                    continue;
-                }
-            };
-
-            debug!("CoopPressurePlateDoorStrategySetup: Found {} {:?} plates", plates.len(), color);
-
-            let last_usage_tick = self
-                .last_plate_door_usage
-                .get(&color)
-                .copied()
-                .unwrap_or(i32::MIN);
-            debug!(
-                "CoopPressurePlateDoorStrategySetup: {:?} door last used at tick {} (current tick: {})",
-                color,
-                if last_usage_tick == i32::MIN {
-                    "never".to_string()
-                } else {
-                    last_usage_tick.to_string()
-                },
-                world.tick
-            );
-
-            // Find a pressure plate that's reachable by at least one player
-            for &plate_pos in plates {
-                debug!("CoopPressurePlateDoorStrategySetup: Checking plate at {:?}", plate_pos);
-
-                // Check if there's a door that's NOT adjacent to this plate
-                // (we want to find doors that need someone to wait on the plate)
-                for &door_pos in door_positions {
-                    let p0_reach = self.player_can_reach_plate_and_door(
-                        world,
-                        world.players[0].position,
-                        plate_pos,
-                        door_pos,
-                    );
-                    let p1_reach = self.player_can_reach_plate_and_door(
-                        world,
-                        world.players[1].position,
-                        plate_pos,
-                        door_pos,
-                    );
-
-                    debug!(
-                        "CoopPressurePlateDoorStrategySetup: P1 path dist to plate: {}, P2 path dist to plate: {}",
-                        if p0_reach.distance_to_plate == i32::MAX as usize {
-                            "unreachable".to_string()
-                        } else {
-                            p0_reach.distance_to_plate.to_string()
-                        },
-                        if p1_reach.distance_to_plate == i32::MAX as usize {
-                            "unreachable".to_string()
-                        } else {
-                            p1_reach.distance_to_plate.to_string()
-                        }
-                    );
-
-                    debug!(
-                        "CoopPressurePlateDoorStrategySetup: P1 can reach plate: {}, door: {}",
-                        p0_reach.can_reach_plate, p0_reach.can_reach_door
-                    );
-                    debug!(
-                        "CoopPressurePlateDoorStrategySetup: P2 can reach plate: {}, door: {}",
-                        p1_reach.can_reach_plate, p1_reach.can_reach_door
-                    );
-
-                    // CRITICAL: Both players must be able to reach BOTH the plate AND the door
-                    let both_can_reach_plate = p0_reach.can_reach_plate && p1_reach.can_reach_plate;
-                    let both_can_reach_door = p0_reach.can_reach_door && p1_reach.can_reach_door;
-
-                    if !both_can_reach_plate || !both_can_reach_door {
-                        debug!(
-                            "CoopPressurePlateDoorStrategySetup: Players on different sides of door - P1 plate:{} door:{}, P2 plate:{} door:{}",
-                            p0_reach.can_reach_plate,
-                            p0_reach.can_reach_door,
-                            p1_reach.can_reach_plate,
-                            p1_reach.can_reach_door
-                        );
-                        continue;
-                    }
-
-                    // Assign roles: closer player to plate waits, other goes through door
-                    let (waiter_idx, passer_idx, passer_reach) =
-                        if p0_reach.distance_to_plate <= p1_reach.distance_to_plate {
-                            (0, 1, &p1_reach)
-                        } else {
-                            (1, 0, &p0_reach)
-                        };
-
-                    if let Some(ref path_to_door) = passer_reach.path_to_door
-                        && let Some(target_pos) =
-                            self.calculate_target_beyond_door(door_pos, path_to_door)
-                    {
-                        let last = path_to_door[path_to_door.len() - 1];
-                        debug!(
-                            "CoopPressurePlateDoorStrategySetup: Door at {:?}, neighbor at {:?}, target {:?}",
-                            door_pos, last, target_pos
-                        );
-
-                        if self.is_target_already_reachable(world, target_pos) {
-                            debug!(
-                                "CoopPressurePlateDoorStrategySetup: Target {:?} is already reachable, no cooperation needed",
-                                target_pos
-                            );
-                            continue;
-                        }
-
-                        // Record this door color as being used with a plate at this tick
-                        self
-                            .last_plate_door_usage
-                            .insert(color, world.tick);
-
-                        debug!(
-                            "CoopPressurePlateDoorStrategySetup: ✓ SELECTED - P{} waits on {:?} plate at {:?}, P{} goes through door at {:?} to target {:?} (last used: tick {})",
-                            waiter_idx + 1,
-                            color,
-                            plate_pos,
-                            passer_idx + 1,
-                            door_pos,
-                            target_pos,
-                            world.tick
-                        );
-
-                        let mut goals = vec![None; 2];
-                        goals[waiter_idx] = Some(Goal::WaitOnPressurePlate(color, plate_pos));
-                        goals[passer_idx] = Some(Goal::PassThroughDoor(color, last, target_pos));
-                        return goals;
-                    }
-
-                    debug!(
-                        "CoopPressurePlateDoorStrategySetup: Could not calculate valid target for P{} through door at {:?}",
-                        passer_idx + 1,
-                        door_pos
-                    );
-                    continue;
-                }
-            }
-        }
-
-        debug!("CoopPressurePlateDoorStrategySetup: No suitable plate/door combination found");
-        vec![None; world.players.len()]
     }
 }
 
