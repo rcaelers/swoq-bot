@@ -214,7 +214,9 @@ pub struct AttackOrFleeEnemyStrategy;
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum CooperativeDoorPassageState {
     Setup,
-    Execute,
+    ExecuteNavigating,  // Passing player moving to target, waiting player on plate
+    ExecuteReleasing,   // Passing player at target, waiting player leaving plate
+    ExecuteWaiting,     // Passing player at target, waiting player left plate, wait for door to close
 }
 
 pub struct CooperativeDoorPassageStrategy {
@@ -266,6 +268,71 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
     }
 }
 
+/// Helper struct to hold pathfinding results for a single player
+struct PlayerReachability {
+    can_reach_plate: bool,
+    can_reach_door: bool,
+    distance_to_plate: usize,
+    path_to_door: Option<Vec<Position>>,
+}
+
+impl SelectGoal for CooperativeDoorPassageStrategy {
+    fn strategy_type(&self) -> StrategyType {
+        StrategyType::Coop
+    }
+
+    fn prioritize(&self, world: &WorldState) -> bool {
+        // In any Execute state, prioritize if there's active cooperation
+        match self.state {
+            CooperativeDoorPassageState::ExecuteNavigating
+            | CooperativeDoorPassageState::ExecuteReleasing
+            | CooperativeDoorPassageState::ExecuteWaiting => self.has_active_door_cooperation(world),
+            CooperativeDoorPassageState::Setup => false,
+        }
+    }
+
+    fn try_select_coop(
+        &mut self,
+        world: &WorldState,
+        current_goals: &[Option<Goal>],
+    ) -> Vec<Option<Goal>> {
+        match self.state {
+            CooperativeDoorPassageState::Setup => self.setup_phase(world, current_goals),
+            CooperativeDoorPassageState::ExecuteNavigating
+            | CooperativeDoorPassageState::ExecuteReleasing
+            | CooperativeDoorPassageState::ExecuteWaiting => {
+                // Only works in 2-player mode
+                if world.players.len() != 2 {
+                    return vec![None; 2];
+                }
+
+                // Check if state transition is needed
+                self.check_state_transition(world);
+
+                debug!(
+                    "CooperativeDoorPassageStrategy: Checking cooperation - P1 prev goal: {:?}, P2 prev goal: {:?}",
+                    world.players[0].previous_goal, world.players[1].previous_goal
+                );
+                debug!(
+                    "CooperativeDoorPassageStrategy: P1 pos: {:?}, P2 pos: {:?}",
+                    world.players[0].position, world.players[1].position
+                );
+
+                // Dispatch to appropriate state handler
+                match self.state {
+                    CooperativeDoorPassageState::ExecuteNavigating => self.execute_navigating(world),
+                    CooperativeDoorPassageState::ExecuteReleasing => self.execute_releasing(world),
+                    CooperativeDoorPassageState::ExecuteWaiting => self.execute_waiting(world),
+                    CooperativeDoorPassageState::Setup => {
+                        // Should not happen, but return empty goals
+                        vec![None; 2]
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl CooperativeDoorPassageStrategy {
     pub fn new() -> Self {
         Self {
@@ -298,198 +365,194 @@ impl CooperativeDoorPassageStrategy {
         })
     }
 
-    fn execute_phase(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
+    /// Check if state transition is needed and update state accordingly
+    fn check_state_transition(&mut self, world: &WorldState) {
         // Only works in 2-player mode
         if world.players.len() != 2 {
-            return vec![None; 2];
+            return;
         }
 
-        // Check if one player is waiting on a pressure plate and the other is passing through the door
-        // This is a SAFETY-CRITICAL check that must override all other strategies
-        debug!(
-            "CooperativeDoorPassageStrategy: Checking cooperation - P1 prev goal: {:?}, P2 prev goal: {:?}",
-            world.players[0].previous_goal, world.players[1].previous_goal
-        );
-        debug!(
-            "CooperativeDoorPassageStrategy: P1 pos: {:?}, P2 pos: {:?}",
-            world.players[0].position, world.players[1].position
-        );
+        match self.state {
+            CooperativeDoorPassageState::ExecuteNavigating => {
+                // Check if passing player reached target -> transition to ExecuteReleasing
+                if let Some((_, _, passing_idx, _, target_pos)) = self.find_cooperation_pair(world)
+                    && world.players[passing_idx].position == target_pos {
+                        debug!("CooperativeDoorPassageStrategy: Transition ExecuteNavigating -> ExecuteReleasing");
+                        self.state = CooperativeDoorPassageState::ExecuteReleasing;
+                    }
+            }
+            CooperativeDoorPassageState::ExecuteReleasing => {
+                // Check if waiting player left plate -> transition to ExecuteWaiting
+                if let Some((waiter_idx, plate_pos, _, _, _)) = self.find_cooperation_pair(world)
+                    && world.players[waiter_idx].position != plate_pos {
+                        debug!("CooperativeDoorPassageStrategy: Transition ExecuteReleasing -> ExecuteWaiting");
+                        self.state = CooperativeDoorPassageState::ExecuteWaiting;
+                    }
+            }
+            CooperativeDoorPassageState::ExecuteWaiting => {
+                // Check if cooperation ended -> transition to Setup
+                if self.find_cooperation_pair(world).is_none() {
+                    debug!("CooperativeDoorPassageStrategy: Transition ExecuteWaiting -> Setup (cooperation ended)");
+                    self.state = CooperativeDoorPassageState::Setup;
+                }
+            }
+            CooperativeDoorPassageState::Setup => {
+                // No transition check needed in Setup state
+            }
+        }
+    }
 
+    /// Find the active cooperation pair (waiter_idx, plate_pos, passing_idx, door_pos, target_pos)
+    fn find_cooperation_pair(&self, world: &WorldState) -> Option<(usize, Position, usize, Position, Position)> {
         for player_index in 0..2 {
-            // Check both directions: waiting player looking for passing player, OR passing player looking for waiting player
-
-            // Case 1: This player has WaitOnPressurePlate, check if other has PassThroughDoor
             if let Some(Goal::WaitOnPressurePlate(color, plate_pos)) =
                 world.players[player_index].previous_goal.as_ref()
             {
                 let other_player_index = 1 - player_index;
-                let other_player = &world.players[other_player_index];
-                let waiting_player = &world.players[player_index];
-
-                debug!(
-                    "CooperativeDoorPassageStrategy: P{} has WaitOnPressurePlate({:?}, {:?})",
-                    player_index + 1,
-                    color,
-                    plate_pos
-                );
-                debug!(
-                    "CooperativeDoorPassageStrategy: P{} position: {:?}, on plate: {}",
-                    player_index + 1,
-                    waiting_player.position,
-                    waiting_player.position == *plate_pos
-                );
-
-                // Check if other player has PassThroughDoor goal
                 if let Some(Goal::PassThroughDoor(c, door_pos, target_pos)) =
-                    other_player.previous_goal.as_ref()
+                    world.players[other_player_index].previous_goal.as_ref()
                     && c == color
                 {
-                    debug!(
-                        "CooperativeDoorPassageStrategy: P{} has PassThroughDoor({:?}, neighbor: {:?}, target: {:?})",
-                        other_player_index + 1,
-                        c,
-                        door_pos,
-                        target_pos
-                    );
-                    debug!(
-                        "CooperativeDoorPassageStrategy: P{} position: {:?}, at target: {}",
-                        other_player_index + 1,
-                        other_player.position,
-                        other_player.position == *target_pos
-                    );
-
-                    // State 1: If passing player hasn't reached target yet, maintain both goals
-                    if other_player.position != *target_pos {
-                        debug!(
-                            "CooperativeDoorPassageStrategy: STATE 1 - P{} navigating to target {:?} (current: {:?}), P{} waiting on plate at {:?}",
-                            other_player_index + 1,
-                            target_pos,
-                            other_player.position,
-                            player_index + 1,
-                            plate_pos
-                        );
-                        let mut goals = vec![None; 2];
-                        goals[player_index] = Some(Goal::WaitOnPressurePlate(*color, *plate_pos));
-                        goals[other_player_index] =
-                            Some(Goal::PassThroughDoor(*c, *door_pos, *target_pos));
-                        return goals;
-                    }
-
-                    // State 2: Passing player reached target, waiting player still on plate
-                    // Release waiting player so they can move off the plate
-                    if waiting_player.position == *plate_pos {
-                        debug!(
-                            "CooperativeDoorPassageStrategy: STATE 2 - P{} at target {:?}, P{} on plate at {:?} - RELEASE P{} to leave",
-                            other_player_index + 1,
-                            target_pos,
-                            player_index + 1,
-                            plate_pos,
-                            player_index + 1
-                        );
-                        let mut goals = vec![None; 2];
-                        goals[player_index] = None; // Release waiting player to move off plate
-                        goals[other_player_index] =
-                            Some(Goal::PassThroughDoor(*c, *door_pos, *target_pos)); // Passing player stays at target
-                        return goals;
-                    }
-
-                    // State 3 & 4: Passing player at target, waiting player left plate
-                    // Keep passing player at target until door closes
-                    debug!(
-                        "CooperativeDoorPassageStrategy: STATE 3/4 - P{} at target {:?}, P{} left plate at {:?} - P{} stays until safe",
-                        other_player_index + 1,
-                        target_pos,
-                        player_index + 1,
-                        plate_pos,
-                        other_player_index + 1
-                    );
-                    let mut goals = vec![None; 2];
-                    goals[player_index] = None; // Waiting player is free
-                    goals[other_player_index] =
-                        Some(Goal::PassThroughDoor(*c, *door_pos, *target_pos)); // Passing player stays (waits for door to close)
-                    return goals;
-                } else {
-                    // Other player doesn't have PassThroughDoor goal - cooperation may have ended prematurely
-                    debug!(
-                        "CooperativeDoorPassageStrategy: ⚠️ WARNING - P{} has WaitOnPressurePlate but P{} has no PassThroughDoor goal (has {:?})",
-                        player_index + 1,
-                        other_player_index + 1,
-                        other_player.previous_goal
-                    );
-                    debug!(
-                        "CooperativeDoorPassageStrategy: P{} is {} on plate at {:?}",
-                        player_index + 1,
-                        if waiting_player.position == *plate_pos {
-                            "STILL"
-                        } else {
-                            "NOT"
-                        },
-                        plate_pos
-                    );
+                    return Some((player_index, *plate_pos, other_player_index, *door_pos, *target_pos));
                 }
             }
+        }
+        None
+    }
 
-            // Case 2: This player has PassThroughDoor, check if we need to wait for plate to clear
-            // This handles the case where waiting player's goal was released but they haven't moved yet
+    fn execute_navigating(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
+        debug!(
+            "CooperativeDoorPassageStrategy: ExecuteNavigating state"
+        );
+
+        if let Some((waiter_idx, plate_pos, passing_idx, door_pos, target_pos)) = self.find_cooperation_pair(world) {
+            let passing_player = &world.players[passing_idx];
+            
+            // State 1: Passing player navigating to target, waiting player on plate
+            if passing_player.position != target_pos {
+                debug!(
+                    "CooperativeDoorPassageStrategy: STATE 1 - P{} navigating to target {:?} (current: {:?}), P{} waiting on plate at {:?}",
+                    passing_idx + 1,
+                    target_pos,
+                    passing_player.position,
+                    waiter_idx + 1,
+                    plate_pos
+                );
+                let mut goals = vec![None; 2];
+                goals[waiter_idx] = Some(Goal::WaitOnPressurePlate(
+                    world.players[waiter_idx].previous_goal.as_ref().and_then(|g| {
+                        if let Goal::WaitOnPressurePlate(c, _) = g { Some(*c) } else { None }
+                    }).unwrap_or(Color::Red),
+                    plate_pos
+                ));
+                goals[passing_idx] = Some(Goal::PassThroughDoor(
+                    world.players[passing_idx].previous_goal.as_ref().and_then(|g| {
+                        if let Goal::PassThroughDoor(c, _, _) = g { Some(*c) } else { None }
+                    }).unwrap_or(Color::Red),
+                    door_pos,
+                    target_pos
+                ));
+                return goals;
+            }
+        }
+
+        debug!("CooperativeDoorPassageStrategy: No active cooperation found in ExecuteNavigating");
+        self.state = CooperativeDoorPassageState::Setup;
+        vec![None; 2]
+    }
+
+    fn execute_releasing(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
+        debug!(
+            "CooperativeDoorPassageStrategy: ExecuteReleasing state"
+        );
+
+        if let Some((waiter_idx, plate_pos, passing_idx, door_pos, target_pos)) = self.find_cooperation_pair(world) {
+            let waiting_player = &world.players[waiter_idx];
+            
+            // State 2: Passing player at target, waiting player still on plate - release waiting player
+            if waiting_player.position == plate_pos {
+                debug!(
+                    "CooperativeDoorPassageStrategy: STATE 2 - P{} at target {:?}, P{} on plate at {:?} - RELEASE P{} to leave",
+                    passing_idx + 1,
+                    target_pos,
+                    waiter_idx + 1,
+                    plate_pos,
+                    waiter_idx + 1
+                );
+                let mut goals = vec![None; 2];
+                goals[waiter_idx] = None; // Release waiting player to move off plate
+                goals[passing_idx] = Some(Goal::PassThroughDoor(
+                    world.players[passing_idx].previous_goal.as_ref().and_then(|g| {
+                        if let Goal::PassThroughDoor(c, _, _) = g { Some(*c) } else { None }
+                    }).unwrap_or(Color::Red),
+                    door_pos,
+                    target_pos
+                )); // Passing player stays at target
+                return goals;
+            }
+        }
+
+        debug!("CooperativeDoorPassageStrategy: No active cooperation found in ExecuteReleasing");
+        self.state = CooperativeDoorPassageState::Setup;
+        vec![None; 2]
+    }
+
+    fn execute_waiting(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
+        debug!(
+            "CooperativeDoorPassageStrategy: ExecuteWaiting state"
+        );
+
+        // Check both possible cooperation directions
+        for player_index in 0..2 {
+            // Case 1: Check if this player is the passer who reached target
             if let Some(Goal::PassThroughDoor(color, door_pos, target_pos)) =
                 world.players[player_index].previous_goal.as_ref()
             {
-                let other_player_index = 1 - player_index;
                 let passing_player = &world.players[player_index];
+                let other_player_index = 1 - player_index;
                 let other_player = &world.players[other_player_index];
 
-                debug!(
-                    "CooperativeDoorPassageStrategy: P{} has PassThroughDoor({:?}, neighbor: {:?}, target: {:?})",
-                    player_index + 1,
-                    color,
-                    door_pos,
-                    target_pos
-                );
-
-                // If passing player is at target, check if other player is still on a plate of matching color
+                // If passing player is at target, keep them frozen
                 if passing_player.position == *target_pos {
                     debug!(
-                        "CooperativeDoorPassageStrategy: P{} at target {:?}, checking if P{} is on matching plate",
+                        "CooperativeDoorPassageStrategy: STATE 3/4 - P{} at target {:?}, P{} free to move",
                         player_index + 1,
                         target_pos,
                         other_player_index + 1
                     );
+                    
+                    // Check if other player is still on a matching plate (door still open)
+                    let other_on_plate = if let Some(plates) = world.pressure_plates.get_positions(*color) {
+                        plates.contains(&other_player.position)
+                    } else {
+                        false
+                    };
 
-                    // Check all plates of this color to see if other player is on one
-                    if let Some(plates) = world.pressure_plates.get_positions(*color) {
-                        for &plate_pos in plates {
-                            if other_player.position == plate_pos {
-                                debug!(
-                                    "CooperativeDoorPassageStrategy: P{} at target, P{} on plate at {:?} - P{} stays frozen",
-                                    player_index + 1,
-                                    other_player_index + 1,
-                                    plate_pos,
-                                    player_index + 1
-                                );
-                                let mut goals = vec![None; 2];
-                                goals[player_index] =
-                                    Some(Goal::PassThroughDoor(*color, *door_pos, *target_pos)); // Passing player stays
-                                goals[other_player_index] = None; // Other player is free to move off plate
-                                return goals;
-                            }
-                        }
+                    if other_on_plate {
+                        debug!(
+                            "CooperativeDoorPassageStrategy: P{} still on plate, P{} stays frozen at target",
+                            other_player_index + 1,
+                            player_index + 1
+                        );
+                    } else {
+                        debug!(
+                            "CooperativeDoorPassageStrategy: P{} left plate, P{} stays frozen until door closes",
+                            other_player_index + 1,
+                            player_index + 1
+                        );
                     }
 
-                    debug!(
-                        "CooperativeDoorPassageStrategy: P{} at target, P{} not on matching plate - cooperation complete",
-                        player_index + 1,
-                        other_player_index + 1
-                    );
+                    let mut goals = vec![None; 2];
+                    goals[player_index] = Some(Goal::PassThroughDoor(*color, *door_pos, *target_pos)); // Passing player stays
+                    goals[other_player_index] = None; // Other player is free
+                    return goals;
                 }
             }
         }
 
-        debug!("CooperativeDoorPassageStrategy: No active cooperation found");
-        
-        // If no active cooperation found, transition back to Setup state
+        debug!("CooperativeDoorPassageStrategy: No active cooperation found in ExecuteWaiting");
         self.state = CooperativeDoorPassageState::Setup;
-
-        vec![None; world.players.len()]
+        vec![None; 2]
     }
 
     /// Calculate pathfinding for a single player to the plate and door
@@ -746,8 +809,8 @@ impl CooperativeDoorPassageStrategy {
                             .last_plate_door_usage
                             .insert(color, world.tick);
                         
-                        // Transition to Execute state
-                        self.state = CooperativeDoorPassageState::Execute;
+                        // Transition to ExecuteNavigating state
+                        self.state = CooperativeDoorPassageState::ExecuteNavigating;
 
                         debug!(
                             "CoopPressurePlateDoorStrategy: ✓ SELECTED - P{} waits on {:?} plate at {:?}, P{} goes through door at {:?} to target {:?} (last used: tick {})",
@@ -1056,40 +1119,6 @@ impl SelectGoal for DropBoulderStrategy {
         }
 
         goals
-    }
-}
-
-/// Helper struct to hold pathfinding results for a single player
-struct PlayerReachability {
-    can_reach_plate: bool,
-    can_reach_door: bool,
-    distance_to_plate: usize,
-    path_to_door: Option<Vec<Position>>,
-}
-
-impl SelectGoal for CooperativeDoorPassageStrategy {
-    fn strategy_type(&self) -> StrategyType {
-        StrategyType::Coop
-    }
-
-    fn prioritize(&self, world: &WorldState) -> bool {
-        // In Execute state, prioritize if there's active cooperation
-        if self.state == CooperativeDoorPassageState::Execute {
-            self.has_active_door_cooperation(world)
-        } else {
-            false
-        }
-    }
-
-    fn try_select_coop(
-        &mut self,
-        world: &WorldState,
-        current_goals: &[Option<Goal>],
-    ) -> Vec<Option<Goal>> {
-        match self.state {
-            CooperativeDoorPassageState::Setup => self.setup_phase(world, current_goals),
-            CooperativeDoorPassageState::Execute => self.execute_phase(world),
-        }
     }
 }
 
