@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use tracing::info;
 
 use crate::game_observer::GameObserver;
-use crate::goal::Goal;
+use crate::goals::Goal;
 use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 

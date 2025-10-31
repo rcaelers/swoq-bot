@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, mpsc};
 
 use crate::game_observer::GameObserver;
-use crate::goal::Goal;
+use crate::goals::Goal;
 use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 use crate::visualizer::{LogColor, LogMessage};
 use crate::world_state::WorldState;

@@ -763,13 +763,13 @@ fn update_log_pane(
     }
 }
 
-fn format_goal(goal: &crate::goal::Goal) -> String {
-    use crate::goal::Goal;
+fn format_goal(goal: &crate::goals::Goal) -> String {
+    use crate::goals::Goal;
     match goal {
         Goal::Explore => "Explore".to_string(),
         Goal::GetKey(color) => format!("GetKey({:?})", color),
         Goal::OpenDoor(color) => format!("OpenDoor({:?})", color),
-        Goal::WaitOnPressurePlate(color, _pos) => format!("WaitOnPlate({:?})", color),
+        Goal::WaitOnTile(color, _pos) => format!("WaitOnTile({:?})", color),
         Goal::PassThroughDoor(color, _door_pos, _target_pos) => format!("PassDoor({:?})", color),
         Goal::PickupSword => "PickupSword".to_string(),
         Goal::PickupHealth(_pos) => "PickupHealth".to_string(),

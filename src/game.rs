@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use crate::game_observer::GameObserver;
-use crate::goal::Goal;
-use crate::strategy::StrategyPlanner;
+use crate::goals::Goal;
+use crate::strategies::StrategyPlanner;
 use crate::swoq::GameConnection;
 use crate::swoq_interface::{self, DirectedAction, GameStatus};
 use crate::world_state::WorldState;

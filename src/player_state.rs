@@ -10,16 +10,16 @@ pub trait Player {
     fn health(&self) -> i32;
     fn inventory(&self) -> Inventory;
     fn has_sword(&self) -> bool;
-    fn current_goal(&self) -> Option<crate::goal::Goal>;
-    fn previous_goal(&self) -> Option<crate::goal::Goal>;
+    fn current_goal(&self) -> Option<crate::goals::Goal>;
+    fn previous_goal(&self) -> Option<crate::goals::Goal>;
     fn current_destination(&self) -> Option<Position>;
     fn current_path(&self) -> Option<Vec<Position>>;
     fn unexplored_frontier(&self) -> &HashSet<Position>;
 
     fn set_current_destination(&mut self, dest: Option<Position>);
     fn set_current_path(&mut self, path: Option<Vec<Position>>);
-    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>);
-    fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>);
+    fn set_current_goal(&mut self, goal: Option<crate::goals::Goal>);
+    fn set_previous_goal(&mut self, goal: Option<crate::goals::Goal>);
 
     fn update_frontier(&mut self, map: &Map);
     fn sorted_unexplored(&self) -> Vec<Position>;
@@ -33,8 +33,8 @@ pub struct PlayerState {
     pub has_sword: bool,
     pub is_active: bool,
     // Planning state to avoid oscillation
-    pub current_goal: Option<crate::goal::Goal>,
-    pub previous_goal: Option<crate::goal::Goal>,
+    pub current_goal: Option<crate::goals::Goal>,
+    pub previous_goal: Option<crate::goals::Goal>,
     pub current_destination: Option<Position>,
     pub current_path: Option<Vec<Position>>,
     pub unexplored_frontier: HashSet<Position>,
@@ -117,11 +117,11 @@ impl Player for PlayerState {
         self.has_sword
     }
 
-    fn current_goal(&self) -> Option<crate::goal::Goal> {
+    fn current_goal(&self) -> Option<crate::goals::Goal> {
         self.current_goal.clone()
     }
 
-    fn previous_goal(&self) -> Option<crate::goal::Goal> {
+    fn previous_goal(&self) -> Option<crate::goals::Goal> {
         self.previous_goal.clone()
     }
 
@@ -145,11 +145,11 @@ impl Player for PlayerState {
         self.current_path = path;
     }
 
-    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>) {
+    fn set_current_goal(&mut self, goal: Option<crate::goals::Goal>) {
         self.current_goal = goal;
     }
 
-    fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>) {
+    fn set_previous_goal(&mut self, goal: Option<crate::goals::Goal>) {
         self.previous_goal = goal;
     }
 
@@ -179,11 +179,11 @@ impl Player for &mut PlayerState {
         self.has_sword
     }
 
-    fn current_goal(&self) -> Option<crate::goal::Goal> {
+    fn current_goal(&self) -> Option<crate::goals::Goal> {
         self.current_goal.clone()
     }
 
-    fn previous_goal(&self) -> Option<crate::goal::Goal> {
+    fn previous_goal(&self) -> Option<crate::goals::Goal> {
         self.previous_goal.clone()
     }
 
@@ -207,11 +207,11 @@ impl Player for &mut PlayerState {
         self.current_path = path;
     }
 
-    fn set_current_goal(&mut self, goal: Option<crate::goal::Goal>) {
+    fn set_current_goal(&mut self, goal: Option<crate::goals::Goal>) {
         self.current_goal = goal;
     }
 
-    fn set_previous_goal(&mut self, goal: Option<crate::goal::Goal>) {
+    fn set_previous_goal(&mut self, goal: Option<crate::goals::Goal>) {
         self.previous_goal = goal;
     }
 
