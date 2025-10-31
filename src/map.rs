@@ -73,7 +73,21 @@ impl Map {
     }
 
     pub fn find_path(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
-        AStar::find_path(self, start, goal, |pos, goal| self.is_walkable(pos, goal))
+        AStar::find_path(self, start, goal, |pos, goal, _tick| self.is_walkable(pos, goal))
+    }
+
+    /// Find a path with custom walkability checking logic.
+    /// The closure receives (position, goal, tick) and should return true if the position is walkable.
+    pub fn find_path_with_custom_walkability<F>(
+        &self,
+        start: Position,
+        goal: Position,
+        is_walkable: F,
+    ) -> Option<Vec<Position>>
+    where
+        F: Fn(&Position, Position, i32) -> bool,
+    {
+        AStar::find_path(self, start, goal, is_walkable)
     }
 
     /// Find a path that avoids colliding with another player's planned path.
@@ -87,7 +101,7 @@ impl Map {
         goal: Position,
         other_player_path: &[Position],
     ) -> Option<Vec<Position>> {
-        AStar::find_path_with_tick(self, start, goal, |pos, goal_pos, tick| {
+        AStar::find_path(self, start, goal, |pos, goal_pos, tick| {
             // First check basic walkability
             if !self.is_walkable(pos, goal_pos) {
                 return false;

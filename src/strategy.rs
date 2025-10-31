@@ -1,185 +1,110 @@
+use std::collections::HashMap;
 use tracing::debug;
 
 use crate::goal::Goal;
-use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
 use crate::world_state::WorldState;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StrategyType {
-    /// Strategy is executed once per player independently
-    SinglePlayer,
-    /// Strategy is evaluated at the same priority level for cooperative tasks.
+    /// Strategy is executed once per player independently.
+    /// Each player that doesn't have a goal is evaluated and may select this strategy or not.
+    Individual,
+    /// Strategy is evaluated once for all players cooperatively.
     /// Each player is evaluated independently and may get different goals or no goal.
     Coop,
 }
 
-// General-purpose helper function for strategies
-// This works with the current_goals parameter and doesn't belong to a specific domain object
-
-/// Check if all players have no assigned goals
-fn all_players_have_no_goals(current_goals: &[Option<Goal>]) -> bool {
-    current_goals.iter().all(|g| g.is_none())
+/// Container for all strategy instances, created once per level
+pub struct StrategyPlanner {
+    strategies: Vec<Box<dyn SelectGoal>>,
+    /// Track which strategy index selected each player's goal from the previous tick
+    last_strategy_per_player: Vec<Option<usize>>,
 }
 
-pub trait SelectGoal {
-    /// Returns the strategy type (single-player or co-op)
-    fn strategy_type(&self) -> StrategyType;
-
-    /// Try to select a goal for a specific player (0 or 1)
-    /// For SinglePlayer strategies only
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
-        let _ = (world, player_index);
-        None
+impl StrategyPlanner {
+    pub fn new() -> Self {
+        Self {
+            strategies: vec![
+                Box::new(CooperativeDoorPassageStrategy),
+                Box::new(AttackOrFleeEnemyStrategy),
+                Box::new(PickupHealthStrategy),
+                Box::new(PickupSwordStrategy),
+                Box::new(CooperativeDoorPassageStrategySetup::new()),
+                Box::new(DropBoulderOnPlateStrategy),
+                Box::new(DropBoulderStrategy),
+                Box::new(UsePressurePlateForDoorStrategy),
+                Box::new(OpenDoorWithKeyStrategy),
+                Box::new(GetKeyForDoorStrategy),
+                Box::new(ReachExitStrategy),
+                Box::new(FetchBoulderForPlateStrategy),
+                Box::new(MoveUnexploredBoulderStrategy),
+                Box::new(FallbackPressurePlateStrategy),
+                Box::new(HuntEnemyWithSwordStrategy),
+                Box::new(RandomExploreStrategy),
+            ],
+            last_strategy_per_player: Vec::new(),
+        }
     }
 
-    /// Try to select goals for all players at once
-    /// For Coop strategies only. Returns a Vec with one Option<Goal> per player.
-    /// Can return different goals for different players, or None for some/all.
-    /// `current_goals` contains the already-assigned goals (None if no goal yet).
-    fn try_select_coop(
-        &self,
-        world: &WorldState,
-        current_goals: &[Option<Goal>],
-    ) -> Vec<Option<Goal>> {
-        let _ = (world, current_goals);
-        vec![None; world.players.len()]
-    }
-}
-
-pub struct Planner;
-
-impl Planner {
-    #[tracing::instrument(level = "debug", skip(world))]
-    pub fn decide_action(world: &mut WorldState) -> Vec<(Goal, DirectedAction)> {
-        let num_players = world.players.len();
-
-        // Check if each player has reached their current destination
-        for player_index in 0..num_players {
-            if let Some(dest) = world.players[player_index].current_destination
-                && world.players[player_index].position == dest
-            {
-                // Reached destination - clear it to select a new goal
-                world.players[player_index].current_destination = None;
-            }
-        }
-
-        println!("\n┌────────────────────────────────────────────────────────────┐");
-        println!("│ 🧠 PLANNING PHASE - Selecting goals                        ");
-        println!("└────────────────────────────────────────────────────────────┘");
-
-        for player_index in 0..num_players {
-            world.players[player_index].current_goal = None;
-        }
-
-        let goals = Self::select_goal(world);
-
-        // Display selected goals
-        for (player_index, goal) in goals.iter().enumerate() {
-            if player_index < num_players {
-                let frontier_size = world.players[player_index].unexplored_frontier.len();
-                let player_pos = world.players[player_index].position;
-                let player_tile = world.map.get(&player_pos);
-                let current_dest = world.players[player_index].current_destination;
-
-                println!(
-                    "  Player {}: {:?}, frontier size: {}, tile: {:?}, dest: {:?}",
-                    player_index + 1,
-                    goal,
-                    frontier_size,
-                    player_tile,
-                    current_dest
-                );
-            }
-        }
-
-        println!("\n┌────────────────────────────────────────────────────────────┐");
-        println!("│ ⚡ EXECUTING ACTIONS - Planning actions for goals           ");
-        println!("└────────────────────────────────────────────────────────────┘");
-
-        // Execute each goal and collect actions
-        let mut results = Vec::new();
-        for (player_index, goal) in goals.into_iter().enumerate() {
-            if player_index < num_players {
-                // Set current goal before execution
-                world.players[player_index].current_goal = Some(goal.clone());
-                let action = goal
-                    .execute_for_player(world, player_index)
-                    .unwrap_or(DirectedAction::None);
-
-                // Update previous goal after execution
-                world.players[player_index].previous_goal = Some(goal.clone());
-                results.push((goal, action));
-            }
-        }
-
-        results
-    }
-
-    #[tracing::instrument(level = "debug", skip(world))]
-    pub fn select_goal(world: &WorldState) -> Vec<Goal> {
-        let strategies: &[&dyn SelectGoal] = &[
-            &CooperativeDoorPassageStrategy,
-            &AttackOrFleeEnemyStrategy,
-            &PickupHealthStrategy,
-            &PickupSwordStrategy,
-            &CooperativeDoorPassageStrategySetup,
-            &DropBoulderOnPlateStrategy,
-            &DropBoulderStrategy,
-            &UsePressurePlateForDoorStrategy,
-            &OpenDoorWithKeyStrategy,
-            &GetKeyForDoorStrategy,
-            &ReachExitStrategy,
-            &FetchBoulderForPlateStrategy,
-            &MoveUnexploredBoulderStrategy,
-            &FallbackPressurePlateStrategy,
-            &HuntEnemyWithSwordStrategy,
-            &RandomExploreStrategy,
-        ];
-
+    #[tracing::instrument(level = "debug", skip(self, world))]
+    pub fn select_goal(&mut self, world: &WorldState) -> Vec<Goal> {
         let num_players = world.players.len();
         let mut selected_goals: Vec<Option<Goal>> = vec![None; num_players];
+        let mut current_strategy_per_player: Vec<Option<usize>> = vec![None; num_players];
+        
+        // Initialize last_strategy_per_player if needed
+        if self.last_strategy_per_player.len() != num_players {
+            self.last_strategy_per_player = vec![None; num_players];
+        }
 
-        // Process strategies in order
-        for strategy in strategies {
-            match strategy.strategy_type() {
-                StrategyType::SinglePlayer => {
-                    // Execute once per player independently
-                    for (player_index, goal_slot) in selected_goals.iter_mut().enumerate() {
-                        if goal_slot.is_none()
-                            && let Some(goal) = strategy.try_select(world, player_index)
-                        {
-                            debug!("Player {} selected goal: {:?}", player_index + 1, goal);
-                            *goal_slot = Some(goal);
-                        }
-                    }
-                }
-                StrategyType::Coop => {
-                    // Execute once for all players
-                    // Co-op strategy can return different goals for different players
-                    if selected_goals.iter().any(|g| g.is_none()) {
-                        let coop_goals = strategy.try_select_coop(world, &selected_goals);
-                        for player_index in 0..num_players.min(coop_goals.len()) {
-                            if selected_goals[player_index].is_none()
-                                && let Some(goal) = &coop_goals[player_index]
-                            {
-                                debug!(
-                                    "Player {} selected co-op goal: {:?}",
-                                    player_index + 1,
-                                    goal
-                                );
-                                selected_goals[player_index] = Some(goal.clone());
-                            }
-                        }
-                    }
-                }
+        // First, try to prioritize strategies that were used last tick
+        let unique_last_strategies: std::collections::HashSet<usize> = 
+            self.last_strategy_per_player.iter().filter_map(|&s| s).collect();
+        
+        for &strategy_idx in &unique_last_strategies {
+            if strategy_idx >= self.strategies.len() {
+                continue;
             }
+            
+            let strategy = &mut self.strategies[strategy_idx];
+            if !strategy.prioritize(world) {
+                continue;
+            }
+            
+            debug!("Prioritizing strategy {} from previous tick", strategy_idx);
+            
+            Self::process_strategy(
+                strategy,
+                strategy_idx,
+                world,
+                &mut selected_goals,
+                &mut current_strategy_per_player,
+                num_players,
+                true,
+            );
+        }
 
+        // Process remaining strategies in order
+        for (strategy_idx, strategy) in self.strategies.iter_mut().enumerate() {
+            Self::process_strategy(
+                strategy,
+                strategy_idx,
+                world,
+                &mut selected_goals,
+                &mut current_strategy_per_player,
+                num_players,
+                false,
+            );
+            
             // If all players have goals, we're done
             if selected_goals.iter().all(|g| g.is_some()) {
                 break;
             }
         }
+
+        // Store which strategies selected goals for next tick
+        self.last_strategy_per_player = current_strategy_per_player;
 
         // Convert to Vec<Goal>, using Explore as default for any player without a goal
         let goals: Vec<Goal> = selected_goals
@@ -194,6 +119,95 @@ impl Planner {
 
         goals
     }
+
+    pub fn all_players_have_no_goals(goals: &[Option<Goal>]) -> bool {
+        goals.iter().all(|g| g.is_none())
+    }
+
+    /// Check if any player still needs a goal
+    fn any_player_needs_goal(selected_goals: &[Option<Goal>]) -> bool {
+        selected_goals.iter().any(|g| g.is_none())
+    }
+
+    /// Process a strategy and assign goals to players
+    fn process_strategy(
+        strategy: &mut Box<dyn SelectGoal>,
+        strategy_idx: usize,
+        world: &WorldState,
+        selected_goals: &mut [Option<Goal>],
+        current_strategy_per_player: &mut [Option<usize>],
+        num_players: usize,
+        is_prioritized: bool,
+    ) {
+        match strategy.strategy_type() {
+            StrategyType::Individual => {
+                for (player_index, goal_slot) in selected_goals.iter_mut().enumerate() {
+                    if goal_slot.is_none()
+                        && let Some(goal) = strategy.try_select(world, player_index)
+                    {
+                        if is_prioritized {
+                            debug!("Player {} re-selected goal from prioritized strategy: {:?}", player_index + 1, goal);
+                        } else {
+                            debug!("Player {} selected goal: {:?}", player_index + 1, goal);
+                        }
+                        *goal_slot = Some(goal);
+                        current_strategy_per_player[player_index] = Some(strategy_idx);
+                    }
+                }
+            }
+            StrategyType::Coop => {
+                if Self::any_player_needs_goal(selected_goals) {
+                    let coop_goals = strategy.try_select_coop(world, selected_goals);
+                    for player_index in 0..num_players.min(coop_goals.len()) {
+                        if selected_goals[player_index].is_none()
+                            && let Some(goal) = &coop_goals[player_index]
+                        {
+                            if is_prioritized {
+                                debug!("Player {} selected co-op goal from prioritized strategy: {:?}", player_index + 1, goal);
+                            } else {
+                                debug!("Player {} selected co-op goal: {:?}", player_index + 1, goal);
+                            }
+                            selected_goals[player_index] = Some(goal.clone());
+                            current_strategy_per_player[player_index] = Some(strategy_idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub trait SelectGoal {
+    /// Returns the strategy type (Individual or Coop)
+    fn strategy_type(&self) -> StrategyType;
+
+    /// Called on strategies that selected goals in the previous tick.
+    /// Return true if this strategy should be tried again before other strategies.
+    /// Default implementation returns false (no prioritization).
+    fn prioritize(&self, world: &WorldState) -> bool {
+        let _ = world;
+        false
+    }
+
+    /// Try to select a goal for a specific player (0 or 1)
+    /// For Individual strategies only
+    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
+        let _ = (world, player_index);
+        None
+    }
+
+    /// Try to select goals for all players at once
+    /// For Coop strategies only. Returns a Vec with one Option<Goal> per player.
+    /// Can return different goals for different players, or None for some/all.
+    /// `current_goals` contains the already-assigned goals (None if no goal yet).
+    fn try_select_coop(
+        &mut self,
+        world: &WorldState,
+        current_goals: &[Option<Goal>],
+    ) -> Vec<Option<Goal>> {
+        let _ = (world, current_goals);
+        vec![None; world.players.len()]
+    }
 }
 
 pub struct AttackOrFleeEnemyStrategy;
@@ -202,7 +216,10 @@ pub struct PickupHealthStrategy;
 pub struct PickupSwordStrategy;
 pub struct DropBoulderOnPlateStrategy;
 pub struct DropBoulderStrategy;
-pub struct CooperativeDoorPassageStrategySetup;
+pub struct CooperativeDoorPassageStrategySetup {
+    // Track when each color door was last opened using a plate (tick number)
+    last_plate_door_usage: HashMap<Color, i32>,
+}
 pub struct UsePressurePlateForDoorStrategy;
 pub struct OpenDoorWithKeyStrategy;
 pub struct GetKeyForDoorStrategy;
@@ -215,10 +232,10 @@ pub struct RandomExploreStrategy;
 
 impl SelectGoal for AttackOrFleeEnemyStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::SinglePlayer
+        StrategyType::Individual
     }
 
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
+    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
         if world.level < 8 {
             return None;
         }
@@ -248,7 +265,7 @@ impl SelectGoal for CooperativeDoorPassageStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         _current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -449,7 +466,7 @@ impl SelectGoal for PickupHealthStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -457,67 +474,69 @@ impl SelectGoal for PickupHealthStrategy {
             return vec![None; world.players.len()];
         }
 
-        // Find the best player to pick up health:
-        // 1. Player with lowest health
-        // 2. If equal health, player closest to health
-        // 3. Must be reachable by the player
+        let mut goals = vec![None; world.players.len()];
 
-        let mut best_player: Option<(usize, i32, usize)> = None; // (player_index, health, distance)
-        let mut health_pos: Option<Position> = None;
+        // Iterate over all health potions
+        for health_pos in world.health.get_positions() {
+            let mut best_player: Option<(usize, i32, usize)> = None; // (player_index, health, distance)
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if current_goals[player_index].is_some() {
-                continue;
-            }
+            // Find the best player for this specific health potion
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if current_goals[player_index].is_some() {
+                    continue;
+                }
 
-            // Check if any enemy is close (within 3 tiles actual path distance)
-            let enemy_nearby =
-                world.enemies.get_positions().iter().any(|&enemy_pos| {
+                // Skip if player already assigned a health pickup in this iteration
+                if goals[player_index].is_some() {
+                    continue;
+                }
+
+                // Check if any enemy is close (within 2 tiles actual path distance)
+                let enemy_nearby = world.enemies.get_positions().iter().any(|&enemy_pos| {
                     world.path_distance_to_enemy(player.position, enemy_pos) <= 2
                 });
 
-            if enemy_nearby {
-                continue;
-            }
+                if enemy_nearby {
+                    continue;
+                }
 
-            // Find closest reachable health for this player
-            if let Some(closest_health) = world.closest_health(player)
-                && let Some(path) = world.map.find_path(player.position, closest_health)
-            {
-                let distance = path.len();
-                let should_select = match best_player {
-                    None => true,
-                    Some((_, best_health, best_distance)) => {
-                        // Prefer player with lower health
-                        if player.health < best_health {
-                            true
-                        } else if player.health == best_health {
-                            // If equal health, prefer closer player
-                            distance < best_distance
-                        } else {
-                            false
+                // Check if this player can reach this health potion
+                if let Some(path) = world.map.find_path(player.position, *health_pos) {
+                    let distance = path.len();
+                    let should_select = match best_player {
+                        None => true,
+                        Some((_, best_health, best_distance)) => {
+                            // Prefer player with lower health
+                            if player.health < best_health {
+                                true
+                            } else if player.health == best_health {
+                                // If equal health, prefer closer player
+                                distance < best_distance
+                            } else {
+                                false
+                            }
                         }
-                    }
-                };
+                    };
 
-                if should_select {
-                    best_player = Some((player_index, player.health, distance));
-                    health_pos = Some(closest_health);
+                    if should_select {
+                        best_player = Some((player_index, player.health, distance));
+                    }
                 }
             }
+
+            // Assign this health potion to the best player found
+            if let Some((player_index, _, _)) = best_player {
+                debug!(
+                    "[PickupHealthStrategy] Player {} selected for PickupHealth (health={}, pos={:?})",
+                    player_index + 1,
+                    world.players[player_index].health,
+                    health_pos
+                );
+                goals[player_index] = Some(Goal::PickupHealth(*health_pos));
+            }
         }
 
-        let mut goals = vec![None; world.players.len()];
-        if let Some((player_index, _, _)) = best_player {
-            debug!(
-                "Player {} selected for PickupHealth (health={}, pos={:?})",
-                player_index + 1,
-                world.players[player_index].health,
-                health_pos
-            );
-            goals[player_index] = Some(Goal::PickupHealth);
-        }
         goals
     }
 }
@@ -528,7 +547,7 @@ impl SelectGoal for PickupSwordStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -536,53 +555,58 @@ impl SelectGoal for PickupSwordStrategy {
             return vec![None; world.players.len()];
         }
 
-        // Find the best player to pick up sword:
-        // 1. Player must not have a sword already
-        // 2. Among players without sword, prefer the closest to any sword
-        // 3. Must be reachable by the player
+        let mut goals = vec![None; world.players.len()];
 
-        let mut best_player: Option<(usize, usize, Position)> = None; // (player_index, distance, sword_pos)
+        // Iterate over all swords
+        for sword_pos in world.swords.get_positions() {
+            let mut best_player: Option<(usize, usize)> = None; // (player_index, distance)
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if current_goals[player_index].is_some() {
-                continue;
-            }
+            // Find the best player for this specific sword
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if current_goals[player_index].is_some() {
+                    continue;
+                }
 
-            // Skip if player already has a sword
-            if player.has_sword {
-                continue;
-            }
+                // Skip if player already assigned a sword pickup in this iteration
+                if goals[player_index].is_some() {
+                    continue;
+                }
 
-            // Find the closest reachable sword for this player
-            if let Some(closest_sword_pos) = world.closest_sword(player)
-                && let Some(path) = world.map.find_path(player.position, closest_sword_pos)
-            {
-                let distance = path.len();
-                let should_select = match best_player {
-                    None => true,
-                    Some((_, best_distance, _)) => {
-                        // Prefer closer player
-                        distance < best_distance
+                // Skip if player already has a sword
+                if player.has_sword {
+                    continue;
+                }
+
+                // Check if this player can reach this sword
+                if let Some(path) = world.map.find_path(player.position, *sword_pos) {
+                    let distance = path.len();
+                    let should_select = match best_player {
+                        None => true,
+                        Some((_, best_distance)) => {
+                            // Prefer closer player
+                            distance < best_distance
+                        }
+                    };
+
+                    if should_select {
+                        best_player = Some((player_index, distance));
                     }
-                };
-
-                if should_select {
-                    best_player = Some((player_index, distance, closest_sword_pos));
                 }
             }
+
+            // Assign this sword to the best player found
+            if let Some((player_index, _)) = best_player {
+                debug!(
+                    "[PickupSwordStrategy] Player {} selected for PickupSword (has_sword={}, sword_pos={:?})",
+                    player_index + 1,
+                    world.players[player_index].has_sword,
+                    sword_pos
+                );
+                goals[player_index] = Some(Goal::PickupSword);
+            }
         }
 
-        let mut goals = vec![None; world.players.len()];
-        if let Some((player_index, _, sword_pos)) = best_player {
-            debug!(
-                "Player {} selected for PickupSword (has_sword={}, closest_sword={:?})",
-                player_index + 1,
-                world.players[player_index].has_sword,
-                sword_pos
-            );
-            goals[player_index] = Some(Goal::PickupSword);
-        }
         goals
     }
 }
@@ -593,7 +617,7 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -601,42 +625,77 @@ impl SelectGoal for DropBoulderOnPlateStrategy {
             return vec![None; world.players.len()];
         }
 
-        let mut goals = Vec::new();
+        let mut goals = vec![None; world.players.len()];
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if player_index < current_goals.len() && current_goals[player_index].is_some() {
-                goals.push(None);
-                continue;
-            }
-            if player.inventory != crate::swoq_interface::Inventory::Boulder {
-                goals.push(None);
+        // Iterate over each color
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            // Only consider this color if there's a door of the same color
+            if !world.doors.has_color(color) {
                 continue;
             }
 
-            debug!("Player carrying a boulder, checking for pressure plates");
+            // Get pressure plates for this color
+            let plates = match world.pressure_plates.get_positions(color) {
+                Some(plates) if !plates.is_empty() => plates,
+                _ => continue,
+            };
 
-            // Find the closest reachable pressure plate across all colors
-            let mut closest_plate: Option<(Color, Position, i32)> = None; // (color, position, distance)
+            debug!("Found {} {:?} pressure plates with matching doors", plates.len(), color);
 
-            for color in [Color::Red, Color::Green, Color::Blue] {
-                if let Some(plates) = world.pressure_plates.get_positions(color) {
-                    for &plate_pos in plates {
-                        // Check if we can reach the plate
-                        if let Some(path_len) = world.path_distance(player.position, plate_pos)
-                            && (closest_plate.is_none() || path_len < closest_plate.unwrap().2)
-                        {
-                            closest_plate = Some((color, plate_pos, path_len));
-                        }
+            let mut best_player: Option<(usize, i32, Position)> = None; // (player_index, distance, plate_pos)
+
+            // Find the best player for this color
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if current_goals[player_index].is_some() {
+                    continue;
+                }
+
+                // Skip if player already assigned a plate in this iteration
+                if goals[player_index].is_some() {
+                    continue;
+                }
+
+                // Skip if player is not carrying a boulder
+                if player.inventory != crate::swoq_interface::Inventory::Boulder {
+                    continue;
+                }
+
+                // Find the closest reachable plate for this player
+                let mut min_distance = i32::MAX;
+                let mut closest_plate = None;
+
+                for &plate_pos in plates {
+                    if let Some(path_len) = world.path_distance(player.position, plate_pos)
+                        && path_len < min_distance
+                    {
+                        min_distance = path_len;
+                        closest_plate = Some(plate_pos);
                     }
+                }
+
+                // If we found at least one reachable plate, consider this player
+                if let Some(plate_pos) = closest_plate {
+                    // Update best player if this one is closer
+                    best_player = match best_player {
+                        None => Some((player_index, min_distance, plate_pos)),
+                        Some((_, best_distance, _)) if min_distance < best_distance => {
+                            Some((player_index, min_distance, plate_pos))
+                        }
+                        _ => best_player,
+                    };
                 }
             }
 
-            if let Some((color, plate_pos, _)) = closest_plate {
-                debug!("Found closest reachable {:?} pressure plate at {:?}", color, plate_pos);
-                goals.push(Some(Goal::DropBoulderOnPlate(color, plate_pos)));
-            } else {
-                goals.push(None);
+            // Assign the goal to the best player
+            if let Some((player_index, _, plate_pos)) = best_player {
+                debug!(
+                    "[DropBoulderOnPlateStrategy] Player {} carrying boulder assigned to {:?} pressure plate at {:?} with matching door",
+                    player_index + 1,
+                    color,
+                    plate_pos
+                );
+                goals[player_index] = Some(Goal::DropBoulderOnPlate(color, plate_pos));
             }
         }
 
@@ -650,7 +709,7 @@ impl SelectGoal for DropBoulderStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -688,6 +747,12 @@ struct PlayerReachability {
 }
 
 impl CooperativeDoorPassageStrategySetup {
+    pub fn new() -> Self {
+        Self {
+            last_plate_door_usage: HashMap::new(),
+        }
+    }
+
     /// Check if there's an active cooperative door passage in progress
     fn has_active_door_cooperation(&self, world: &WorldState) -> bool {
         world.players.iter().enumerate().any(|(idx, p)| {
@@ -781,7 +846,7 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -802,7 +867,7 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
             return vec![None; 2];
         }
 
-        if !all_players_have_no_goals(current_goals) {
+        if !StrategyPlanner::all_players_have_no_goals(current_goals) {
             debug!(
                 "CoopPressurePlateDoorStrategySetup: Some players already have goals, skipping new assignment"
             );
@@ -823,8 +888,22 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
             return vec![None; world.players.len()];
         }
 
+        // Sort colors by least recently used (prefer colors not used yet or used longest ago)
+        let mut colors_by_usage: Vec<Color> = vec![Color::Red, Color::Green, Color::Blue];
+        colors_by_usage.sort_by_key(|&color| {
+            self
+                .last_plate_door_usage
+                .get(&color)
+                .copied()
+                .unwrap_or(i32::MIN)
+        });
+        debug!(
+            "CoopPressurePlateDoorStrategySetup: Checking colors in priority order: {:?}",
+            colors_by_usage
+        );
+
         // Find a pressure plate and door of the same color
-        for color in [Color::Red, Color::Green, Color::Blue] {
+        for color in colors_by_usage {
             debug!("CoopPressurePlateDoorStrategySetup: Checking {:?} color", color);
 
             // Skip if any player has a key for this color
@@ -863,6 +942,22 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
             };
 
             debug!("CoopPressurePlateDoorStrategySetup: Found {} {:?} plates", plates.len(), color);
+
+            let last_usage_tick = self
+                .last_plate_door_usage
+                .get(&color)
+                .copied()
+                .unwrap_or(i32::MIN);
+            debug!(
+                "CoopPressurePlateDoorStrategySetup: {:?} door last used at tick {} (current tick: {})",
+                color,
+                if last_usage_tick == i32::MIN {
+                    "never".to_string()
+                } else {
+                    last_usage_tick.to_string()
+                },
+                world.tick
+            );
 
             // Find a pressure plate that's reachable by at least one player
             for &plate_pos in plates {
@@ -923,7 +1018,7 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
                     }
 
                     // Assign roles: closer player to plate waits, other goes through door
-                    let (waiter_idx, passer_idx, passer_reach) = 
+                    let (waiter_idx, passer_idx, passer_reach) =
                         if p0_reach.distance_to_plate <= p1_reach.distance_to_plate {
                             (0, 1, &p1_reach)
                         } else {
@@ -948,11 +1043,22 @@ impl SelectGoal for CooperativeDoorPassageStrategySetup {
                             continue;
                         }
 
+                        // Record this door color as being used with a plate at this tick
+                        self
+                            .last_plate_door_usage
+                            .insert(color, world.tick);
+
                         debug!(
-                            "CoopPressurePlateDoorStrategySetup: ✓ SELECTED - P{} waits on {:?} plate at {:?}, P{} goes through door at {:?} to target {:?}",
-                            waiter_idx + 1, color, plate_pos, passer_idx + 1, door_pos, target_pos
+                            "CoopPressurePlateDoorStrategySetup: ✓ SELECTED - P{} waits on {:?} plate at {:?}, P{} goes through door at {:?} to target {:?} (last used: tick {})",
+                            waiter_idx + 1,
+                            color,
+                            plate_pos,
+                            passer_idx + 1,
+                            door_pos,
+                            target_pos,
+                            world.tick
                         );
-                        
+
                         let mut goals = vec![None; 2];
                         goals[waiter_idx] = Some(Goal::WaitOnPressurePlate(color, plate_pos));
                         goals[passer_idx] = Some(Goal::PassThroughDoor(color, last, target_pos));
@@ -980,68 +1086,104 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
-        let mut goals = Vec::new();
+        let mut goals = vec![None; world.players.len()];
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if player_index < current_goals.len() && current_goals[player_index].is_some() {
-                goals.push(None);
+        // Iterate over each color
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            // Get door positions for this color
+            let door_positions = match world.doors.get_positions(color) {
+                Some(pos) if !pos.is_empty() => pos,
+                _ => continue,
+            };
+
+            // Get pressure plates for this color
+            let plates = match world.pressure_plates.get_positions(color) {
+                Some(plates) if !plates.is_empty() => plates,
+                _ => continue,
+            };
+
+            // Find plates that are adjacent to doors of the same color
+            let adjacent_plates: Vec<Position> = plates
+                .iter()
+                .copied()
+                .filter(|plate_pos| {
+                    plate_pos
+                        .neighbors()
+                        .iter()
+                        .any(|neighbor| door_positions.contains(neighbor))
+                })
+                .collect();
+
+            if adjacent_plates.is_empty() {
                 continue;
             }
-            let mut player_goal = None;
 
-            // Check if we can use pressure plates to open doors (prefer keys over plates)
-            for color in [Color::Red, Color::Green, Color::Blue] {
-                // Skip if we have a key for this color
+            debug!("Found {} {:?} pressure plates adjacent to doors", adjacent_plates.len(), color);
+
+            let mut best_player: Option<(usize, i32, Position)> = None; // (player_index, distance, plate_pos)
+
+            // Find the best player for this color
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if player_index < current_goals.len() && current_goals[player_index].is_some() {
+                    continue;
+                }
+                if goals[player_index].is_some() {
+                    continue;
+                }
+
+                // Skip if player has a key for this color (prefer keys over plates)
                 if world.has_key(player, color) {
                     continue;
                 }
 
-                let door_positions = match world.doors.get_positions(color) {
-                    Some(pos) => pos,
-                    None => continue,
-                };
-                if door_positions.is_empty() {
-                    continue;
-                }
+                // Find the closest reachable plate for this player
+                let mut min_distance = i32::MAX;
+                let mut closest_plate = None;
 
-                // Get pressure plates for this color
-                if let Some(plates) = world.pressure_plates.get_positions(color) {
-                    // Check each pressure plate to see if we can stand on it
-                    for &plate_pos in plates {
-                        // Can we reach the plate?
-                        if !player.position.is_adjacent(&plate_pos)
-                            && world.map.find_path(player.position, plate_pos).is_none()
-                        {
-                            continue;
+                for &plate_pos in &adjacent_plates {
+                    let distance = if player.position.is_adjacent(&plate_pos) {
+                        0 // Already adjacent
+                    } else {
+                        match world.map.find_path(player.position, plate_pos) {
+                            Some(path) => path.len() as i32,
+                            None => continue, // Can't reach this plate
                         }
+                    };
 
-                        // Is there a door of the same color adjacent to this plate?
-                        for &neighbor in &plate_pos.neighbors() {
-                            if door_positions.contains(&neighbor) {
-                                debug!(
-                                    "Found {:?} pressure plate at {:?} adjacent to door at {:?}",
-                                    color, plate_pos, neighbor
-                                );
-                                player_goal = Some(Goal::WaitOnPressurePlate(color, plate_pos));
-                                break;
-                            }
-                        }
-                        if player_goal.is_some() {
-                            break;
-                        }
+                    if distance < min_distance {
+                        min_distance = distance;
+                        closest_plate = Some(plate_pos);
                     }
                 }
-                if player_goal.is_some() {
-                    break;
+
+                // If we found at least one reachable plate, consider this player
+                if let Some(plate_pos) = closest_plate {
+                    // Update best player if this one is closer
+                    best_player = match best_player {
+                        None => Some((player_index, min_distance, plate_pos)),
+                        Some((_, best_dist, _)) if min_distance < best_dist => {
+                            Some((player_index, min_distance, plate_pos))
+                        }
+                        _ => best_player,
+                    };
                 }
             }
 
-            goals.push(player_goal);
+            // Assign the goal to the best player
+            if let Some((player_index, _, plate_pos)) = best_player {
+                debug!(
+                    "[UsePressurePlateForDoorStrategy] Player {} assigned to wait on {:?} pressure plate at {:?}",
+                    player_index + 1,
+                    color,
+                    plate_pos
+                );
+                goals[player_index] = Some(Goal::WaitOnPressurePlate(color, plate_pos));
+            }
         }
 
         goals
@@ -1054,73 +1196,93 @@ impl SelectGoal for OpenDoorWithKeyStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
         let mut goals = vec![None; world.players.len()];
 
-        // Track which door colors have been assigned to prevent conflicts
-        let mut assigned_door_colors = std::collections::HashSet::new();
+        // Iterate over each door color
+        for &color in world.doors.colors() {
+            let door_positions = match world.doors.get_positions(color) {
+                Some(pos) if !pos.is_empty() => pos,
+                _ => continue,
+            };
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if player_index < current_goals.len() && current_goals[player_index].is_some() {
-                continue;
-            }
+            // Check if any door of this color has a reachable empty neighbor from any player
+            let mut best_player: Option<(usize, i32)> = None; // (player_index, distance)
 
-            for &color in world.doors.colors() {
-                // Skip if this door color is already assigned to another player
-                if assigned_door_colors.contains(&color) {
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if player_index < current_goals.len() && current_goals[player_index].is_some() {
+                    continue;
+                }
+                if goals[player_index].is_some() {
                     continue;
                 }
 
-                if world.has_key(player, color) {
-                    let door_positions = match world.doors.get_positions(color) {
-                        Some(pos) => pos,
-                        None => continue,
-                    };
+                // Skip if player doesn't have the key for this color
+                if !world.has_key(player, color) {
+                    continue;
+                }
 
-                    // Check if any door of this color has a reachable empty neighbor
-                    for &door_pos in door_positions {
-                        debug!(
-                            "Player {} checking door {:?} at {:?}",
-                            player_index + 1,
-                            color,
-                            door_pos
-                        );
-
-                        // Check if any neighbor of the door is reachable
-                        let has_reachable_neighbor = door_pos.neighbors().iter().any(|&neighbor| {
-                            // Only consider empty tiles (or player position)
-                            if neighbor != player.position
-                                && !matches!(
-                                    world.map.get(&neighbor),
-                                    Some(crate::swoq_interface::Tile::Empty)
-                                )
-                            {
-                                return false;
-                            }
-
-                            // Check if player is already at this neighbor or can path to it
-                            player.position == neighbor
-                                || world.map.find_path(player.position, neighbor).is_some()
-                        });
-
-                        if has_reachable_neighbor {
-                            debug!(
-                                "Player {} assigned to open {:?} door (has key, door reachable)",
-                                player_index + 1,
-                                color
-                            );
-                            goals[player_index] = Some(Goal::OpenDoor(color));
-                            assigned_door_colors.insert(color);
-                            break;
-                        } else {
-                            debug!("Door at {:?} has no reachable empty neighbors", door_pos);
+                // Check if any door of this color is reachable by this player
+                let mut min_distance = i32::MAX;
+                for &door_pos in door_positions {
+                    // Check if any neighbor of the door is reachable
+                    for &neighbor in &door_pos.neighbors() {
+                        // Only consider empty tiles (or player position)
+                        if neighbor != player.position
+                            && !matches!(
+                                world.map.get(&neighbor),
+                                Some(crate::swoq_interface::Tile::Empty)
+                            )
+                        {
+                            continue;
                         }
+
+                        // Calculate distance to this neighbor
+                        let distance = if player.position == neighbor {
+                            0 // Already at the door
+                        } else {
+                            match world.map.find_path(player.position, neighbor) {
+                                Some(path) => path.len() as i32,
+                                None => continue, // Can't reach this neighbor
+                            }
+                        };
+
+                        min_distance = min_distance.min(distance);
                     }
                 }
+
+                // If we found at least one reachable door, consider this player
+                if min_distance < i32::MAX {
+                    debug!(
+                        "Player {} can reach {:?} door (has key, distance: {})",
+                        player_index + 1,
+                        color,
+                        min_distance
+                    );
+
+                    // Update best player if this one is closer
+                    best_player = match best_player {
+                        None => Some((player_index, min_distance)),
+                        Some((_, best_dist)) if min_distance < best_dist => {
+                            Some((player_index, min_distance))
+                        }
+                        _ => best_player,
+                    };
+                }
+            }
+
+            // Assign the goal to the best player
+            if let Some((player_index, _)) = best_player {
+                debug!(
+                    "[OpenDoorWithKeyStrategy] Player {} assigned to open {:?} door (has key, door reachable)",
+                    player_index + 1,
+                    color
+                );
+                goals[player_index] = Some(Goal::OpenDoor(color));
             }
         }
 
@@ -1134,7 +1296,7 @@ impl SelectGoal for GetKeyForDoorStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -1142,6 +1304,25 @@ impl SelectGoal for GetKeyForDoorStrategy {
 
         // Track which key colors have been assigned to prevent conflicts
         let mut assigned_key_colors = std::collections::HashSet::new();
+
+        // In 2-player mode, check which door colors have reachable pressure plates
+        let mut doors_with_plates = std::collections::HashSet::new();
+        if world.is_two_player_mode() {
+            for &color in &[Color::Red, Color::Green, Color::Blue] {
+                if let Some(plates) = world.pressure_plates.get_positions(color) {
+                    // Check if any player can reach any plate of this color
+                    let can_reach_plate = world.players.iter().any(|player| {
+                        plates.iter().any(|&plate_pos| {
+                            world.map.find_path(player.position, plate_pos).is_some()
+                        })
+                    });
+                    if can_reach_plate {
+                        doors_with_plates.insert(color);
+                        debug!("In 2-player mode: {:?} door has reachable pressure plate", color);
+                    }
+                }
+            }
+        }
 
         for (player_index, player) in world.players.iter().enumerate() {
             // Skip if player already has a goal
@@ -1166,11 +1347,29 @@ impl SelectGoal for GetKeyForDoorStrategy {
                 if world.knows_key_location(color) {
                     if let Some(key_pos) = world.closest_key(player, color) {
                         debug!("Closest key for {:?} is at {:?}", color, key_pos);
-                        // Use can_open_doors=true to allow using keys we already have
-                        // Use avoid_keys=true to not pick up other keys along the way
-                        if world.map.find_path(player.position, key_pos).is_some() {
+                        
+                        // In 2-player mode with reachable pressure plate, treat matching doors as walkable
+                        let can_reach = if world.is_two_player_mode() && doors_with_plates.contains(&color) {
+                            world.map.find_path_with_custom_walkability(player.position, key_pos, |pos, goal, _tick| {
+                                // Check if this door matches our target color and we have a reachable plate
+                                let is_matching_door = matches!((world.map.get(pos), color), 
+                                        (Some(crate::swoq_interface::Tile::DoorRed), Color::Red) | 
+                                        (Some(crate::swoq_interface::Tile::DoorGreen), Color::Green) | 
+                                        (Some(crate::swoq_interface::Tile::DoorBlue), Color::Blue));
+                                if is_matching_door {
+                                    debug!("Treating {:?} door at {:?} as walkable (plate reachable in 2P mode)", color, pos);
+                                    true
+                                } else {
+                                    world.map.is_walkable(pos, goal)
+                                }
+                            }).is_some()
+                        } else {
+                            world.map.find_path(player.position, key_pos).is_some()
+                        };
+                        
+                        if can_reach {
                             debug!(
-                                "Player {} assigned to get {:?} key (reachable)",
+                                "[GetKeyForDoorStrategy] Player {} assigned to get {:?} key (reachable)",
                                 player_index + 1,
                                 color
                             );
@@ -1193,10 +1392,10 @@ impl SelectGoal for GetKeyForDoorStrategy {
 
 impl SelectGoal for ReachExitStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::SinglePlayer
+        StrategyType::Individual
     }
 
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
+    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
         let player = &world.players[player_index];
 
         let exit_pos = world.exit_position?;
@@ -1245,7 +1444,7 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -1255,44 +1454,86 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
             return goals;
         }
 
-        // First priority: if there's a pressure plate, fetch a boulder for it
-        let has_pressure_plates = [Color::Red, Color::Green, Color::Blue]
-            .iter()
-            .any(|&color| world.pressure_plates.has_color(color));
-
-        if !has_pressure_plates {
-            return goals;
-        }
-
         // Track which boulders have been assigned to prevent conflicts
         let mut assigned_boulders = std::collections::HashSet::new();
 
-        for (player_index, player) in world.players.iter().enumerate() {
-            // Skip if player already has a goal
-            if player_index < current_goals.len() && current_goals[player_index].is_some() {
+        // Iterate over each color
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            // Only consider this color if there's a door and pressure plate
+            if !world.doors.has_color(color) || !world.pressure_plates.has_color(color) {
                 continue;
             }
-            if player.inventory != crate::swoq_interface::Inventory::None {
-                continue;
-            }
 
-            debug!(
-                "Player {} found pressure plates, looking for nearest boulder",
-                player_index + 1
-            );
+            // Check if any door of this color is reachable by any player
+            let door_positions = match world.doors.get_positions(color) {
+                Some(pos) if !pos.is_empty() => pos,
+                _ => continue,
+            };
 
-            // Find nearest reachable boulder that hasn't been assigned
-            let mut nearest_boulder: Option<Position> = None;
-            let mut nearest_distance = i32::MAX;
+            debug!("Checking {:?} color for boulder fetch (has doors and plates)", color);
 
-            for boulder_pos in world.boulders.get_all_positions() {
-                // Skip if this boulder is already assigned to another player
-                if assigned_boulders.contains(&boulder_pos) {
+            let mut best_player: Option<(usize, i32, Position)> = None; // (player_index, distance, boulder_pos)
+
+            // Find the best player to fetch a boulder for this color
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal (from current goals or reused goal)
+                if player_index < current_goals.len() && current_goals[player_index].is_some() {
+                    continue;
+                }
+                if goals[player_index].is_some() {
+                    continue;
+                }
+                if player.inventory != crate::swoq_interface::Inventory::None {
                     continue;
                 }
 
-                let dist = player.position.distance(&boulder_pos);
-                if dist < nearest_distance {
+                // Check if this player can reach any door of this color
+                let can_reach_door = door_positions.iter().any(|&door_pos| {
+                    door_pos.neighbors().iter().any(|&neighbor| {
+                        matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty))
+                            && world.map.find_path(player.position, neighbor).is_some()
+                    })
+                });
+
+                if !can_reach_door {
+                    continue;
+                }
+
+                // First, check if this player has an existing FetchBoulder goal that's still valid
+                if let Some(Goal::FetchBoulder(boulder_pos)) = &player.previous_goal {
+                    // Check if this boulder still exists and hasn't been assigned
+                    if world.boulders.get_all_positions().contains(boulder_pos)
+                        && !assigned_boulders.contains(boulder_pos)
+                    {
+                        // Verify the boulder is still reachable
+                        let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
+                            world.map.is_walkable(&adj, adj)
+                                && world.map.find_path(player.position, adj).is_some()
+                        });
+
+                        if can_reach {
+                            debug!(
+                                "[FetchBoulderForPlateStrategy] Player {} reusing existing FetchBoulder goal for boulder at {:?} (conditions still valid)",
+                                player_index + 1,
+                                boulder_pos
+                            );
+                            goals[player_index] = Some(Goal::FetchBoulder(*boulder_pos));
+                            assigned_boulders.insert(*boulder_pos);
+                            continue;
+                        }
+                    }
+                }
+
+                // Find the closest reachable boulder that hasn't been assigned
+                let mut closest_boulder = None;
+                let mut min_distance = i32::MAX;
+
+                for boulder_pos in world.boulders.get_all_positions() {
+                    // Skip if this boulder is already assigned
+                    if assigned_boulders.contains(&boulder_pos) {
+                        continue;
+                    }
+
                     // Check if we can reach an adjacent position to pick it up
                     let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
                         world.map.is_walkable(&adj, adj)
@@ -1300,17 +1541,34 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
                     });
 
                     if can_reach {
-                        nearest_boulder = Some(boulder_pos);
-                        nearest_distance = dist;
+                        let dist = player.position.distance(&boulder_pos);
+                        if dist < min_distance {
+                            min_distance = dist;
+                            closest_boulder = Some(boulder_pos);
+                        }
                     }
+                }
+
+                // If we found a reachable boulder, consider this player
+                if let Some(boulder_pos) = closest_boulder {
+                    // Update best player if this one is closer to their boulder
+                    best_player = match best_player {
+                        None => Some((player_index, min_distance, boulder_pos)),
+                        Some((_, best_distance, _)) if min_distance < best_distance => {
+                            Some((player_index, min_distance, boulder_pos))
+                        }
+                        _ => best_player,
+                    };
                 }
             }
 
-            if let Some(boulder_pos) = nearest_boulder {
+            // Assign the goal to the best player
+            if let Some((player_index, _, boulder_pos)) = best_player {
                 debug!(
-                    "Player {} assigned boulder at {:?} for pressure plate",
+                    "[FetchBoulderForPlateStrategy] Player {} assigned to fetch boulder at {:?} for {:?} pressure plate (has matching reachable door)",
                     player_index + 1,
-                    boulder_pos
+                    boulder_pos,
+                    color
                 );
                 goals[player_index] = Some(Goal::FetchBoulder(boulder_pos));
                 assigned_boulders.insert(boulder_pos);
@@ -1327,7 +1585,7 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
     }
 
     fn try_select_coop(
-        &self,
+        &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
@@ -1375,7 +1633,7 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 
                     if can_reach {
                         debug!(
-                            "  Player {} assigned boulder at {:?}",
+                            "[MoveUnexploredBoulderStrategy] Player {} assigned boulder at {:?}",
                             player_index + 1,
                             boulder_pos
                         );
@@ -1399,45 +1657,117 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 
 impl SelectGoal for FallbackPressurePlateStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::SinglePlayer
+        StrategyType::Coop
     }
 
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
-        let player = &world.players[player_index];
+    fn try_select_coop(
+        &mut self,
+        world: &WorldState,
+        current_goals: &[Option<Goal>],
+    ) -> Vec<Option<Goal>> {
+        let mut goals = vec![None; world.players.len()];
 
-        // If nothing else to do and area is fully explored, step on any reachable pressure plate
-        if !player.unexplored_frontier.is_empty() {
-            return None;
-        }
-
-        debug!("Area fully explored, checking for pressure plates to step on");
+        // Iterate over each color and assign one player per color
         for color in [Color::Red, Color::Green, Color::Blue] {
-            if let Some(plates) = world.pressure_plates.get_positions(color) {
-                for &plate_pos in plates {
-                    // Check if we can reach the plate
-                    if player.position.is_adjacent(&plate_pos)
-                        || world.map.find_path(player.position, plate_pos).is_some()
-                    {
-                        debug!(
-                            "Found reachable {:?} pressure plate at {:?} as fallback",
-                            color, plate_pos
-                        );
-                        return Some(Goal::WaitOnPressurePlate(color, plate_pos));
+            // Get door positions for this color
+            let door_positions = match world.doors.get_positions(color) {
+                Some(pos) if !pos.is_empty() => pos,
+                _ => continue,
+            };
+
+            // Get pressure plates for this color
+            let plates = match world.pressure_plates.get_positions(color) {
+                Some(plates) if !plates.is_empty() => plates,
+                _ => continue,
+            };
+
+            // Find plates that are within distance 4 of doors of the same color
+            let nearby_plates: Vec<Position> = plates
+                .iter()
+                .copied()
+                .filter(|plate_pos| {
+                    door_positions
+                        .iter()
+                        .any(|door_pos| plate_pos.distance(door_pos) <= 4)
+                })
+                .collect();
+
+            if nearby_plates.is_empty() {
+                continue;
+            }
+
+            let mut best_player: Option<(usize, i32, Position)> = None; // (player_index, distance, plate_pos)
+
+            // Find the best player for this color
+            for (player_index, player) in world.players.iter().enumerate() {
+                // Skip if player already has a goal
+                if player_index < current_goals.len() && current_goals[player_index].is_some() {
+                    continue;
+                }
+                if goals[player_index].is_some() {
+                    continue;
+                }
+
+                // If nothing else to do and area is fully explored, step on any reachable pressure plate
+                if !player.unexplored_frontier.is_empty() {
+                    continue;
+                }
+
+                // Find the closest reachable plate for this player
+                let mut min_distance = i32::MAX;
+                let mut closest_plate = None;
+
+                for &plate_pos in &nearby_plates {
+                    let distance = if player.position.is_adjacent(&plate_pos) {
+                        0 // Already adjacent
+                    } else {
+                        match world.map.find_path(player.position, plate_pos) {
+                            Some(path) => path.len() as i32,
+                            None => continue, // Can't reach this plate
+                        }
+                    };
+
+                    if distance < min_distance {
+                        min_distance = distance;
+                        closest_plate = Some(plate_pos);
                     }
                 }
+
+                // If we found at least one reachable plate, consider this player
+                if let Some(plate_pos) = closest_plate {
+                    // Update best player if this one is closer
+                    best_player = match best_player {
+                        None => Some((player_index, min_distance, plate_pos)),
+                        Some((_, best_dist, _)) if min_distance < best_dist => {
+                            Some((player_index, min_distance, plate_pos))
+                        }
+                        _ => best_player,
+                    };
+                }
+            }
+
+            // Assign the goal to the best player for this color
+            if let Some((player_index, _, plate_pos)) = best_player {
+                debug!(
+                    "[FallbackPressurePlateStrategy] Player {} assigned to {:?} pressure plate at {:?} (within distance 4 of door) as fallback",
+                    player_index + 1,
+                    color,
+                    plate_pos
+                );
+                goals[player_index] = Some(Goal::WaitOnPressurePlate(color, plate_pos));
             }
         }
 
-        None
+        goals
     }
 }
 
 impl SelectGoal for HuntEnemyWithSwordStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::SinglePlayer
+        StrategyType::Individual
     }
 
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
+    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
         let player = &world.players[player_index];
 
         // Only hunt enemies when:
@@ -1481,10 +1811,10 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
 
 impl SelectGoal for RandomExploreStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::SinglePlayer
+        StrategyType::Individual
     }
 
-    fn try_select(&self, world: &WorldState, player_index: usize) -> Option<Goal> {
+    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
         let player = &world.players[player_index];
 
         // Only use random exploration when:

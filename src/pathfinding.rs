@@ -25,88 +25,11 @@ impl PartialOrd for Node {
 pub struct AStar;
 
 impl AStar {
-    #[tracing::instrument(level = "trace", skip(map, is_walkable), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
-    pub fn find_path<F>(
-        map: &Map,
-        start: Position,
-        goal: Position,
-        is_walkable: F,
-    ) -> Option<Vec<Position>>
-    where
-        F: Fn(&Position, Position) -> bool,
-    {
-        let mut open_set = BinaryHeap::new();
-        let mut came_from: HashMap<Position, Position> = HashMap::new();
-        let mut g_score: HashMap<Position, i32> = HashMap::new();
-        let mut closed_set: HashSet<Position> = HashSet::new();
-
-        g_score.insert(start, 0);
-        open_set.push(Node {
-            pos: start,
-            f_score: heuristic(start, goal),
-        });
-
-        // Limit node expansions to prevent excessive searching for unreachable targets
-        const MAX_EXPANSIONS: usize = 5000;
-        let mut expansions = 0;
-
-        while let Some(Node { pos: current, .. }) = open_set.pop() {
-            if current == goal {
-                tracing::trace!(expansions, "Path found");
-                return Some(reconstruct_path(&came_from, current));
-            }
-
-            if closed_set.contains(&current) {
-                continue;
-            }
-            closed_set.insert(current);
-
-            expansions += 1;
-            if expansions > MAX_EXPANSIONS {
-                // Too many expansions, target likely unreachable
-                tracing::warn!(expansions, "Max expansions reached, target unreachable");
-                return None;
-            }
-
-            for neighbor in current.neighbors() {
-                if closed_set.contains(&neighbor) {
-                    continue;
-                }
-
-                // Check if neighbor is within bounds
-                if neighbor.x < 0
-                    || neighbor.x >= map.width
-                    || neighbor.y < 0
-                    || neighbor.y >= map.height
-                {
-                    continue;
-                }
-
-                if !is_walkable(&neighbor, goal) {
-                    continue;
-                }
-
-                let tentative_g = g_score.get(&current).unwrap_or(&i32::MAX) + 1;
-
-                if tentative_g < *g_score.get(&neighbor).unwrap_or(&i32::MAX) {
-                    came_from.insert(neighbor, current);
-                    g_score.insert(neighbor, tentative_g);
-                    open_set.push(Node {
-                        pos: neighbor,
-                        f_score: tentative_g + heuristic(neighbor, goal),
-                    });
-                }
-            }
-        }
-
-        tracing::trace!(expansions, "No path found");
-        None
-    }
-
-    /// Find a path while avoiding collisions with another player's path at matching ticks.
+    /// Find a path with optional tick-aware walkability checking.
     /// The callback `is_walkable_at_tick` receives (position, goal, tick_from_start).
+    /// For tick-unaware pathfinding, simply ignore the tick parameter in your closure.
     #[tracing::instrument(level = "trace", skip(map, is_walkable_at_tick), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
-    pub fn find_path_with_tick<F>(
+    pub fn find_path<F>(
         map: &Map,
         start: Position,
         goal: Position,

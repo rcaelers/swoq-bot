@@ -57,7 +57,7 @@ impl GameConnection {
         &mut self,
         level: Option<i32>,
         seed: Option<i32>,
-    ) -> Result<Game<'_>, Box<dyn std::error::Error>> {
+    ) -> Result<Game, Box<dyn std::error::Error>> {
         loop {
             let request = StartRequest {
                 user_id: self.user_id.clone(),
@@ -75,7 +75,7 @@ impl GameConnection {
                         .replays_folder
                         .as_ref()
                         .and_then(|folder| ReplayFile::new(folder, &request, &response).ok());
-                    return Ok(Game::new(&mut self.client, response, replay_file));
+                    return Ok(Game::new(self.client.clone(), response, replay_file));
                 }
                 StartResult::QuestQueued => {
                     println!("Quest queued, retrying ...");
@@ -88,8 +88,8 @@ impl GameConnection {
     }
 }
 
-pub struct Game<'c> {
-    client: &'c mut GameServiceClient<Channel>,
+pub struct Game {
+    client: GameServiceClient<Channel>,
     replay_file: Option<ReplayFile>,
     pub game_id: String,
     pub map_height: i32,
@@ -99,9 +99,9 @@ pub struct Game<'c> {
     pub seed: Option<i32>,
 }
 
-impl<'c> Game<'c> {
+impl Game {
     fn new(
-        client: &'c mut GameServiceClient<Channel>,
+        client: GameServiceClient<Channel>,
         response: StartResponse,
         replay_file: Option<ReplayFile>,
     ) -> Self {

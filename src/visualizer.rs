@@ -772,7 +772,7 @@ fn format_goal(goal: &crate::goal::Goal) -> String {
         Goal::WaitOnPressurePlate(color, _pos) => format!("WaitOnPlate({:?})", color),
         Goal::PassThroughDoor(color, _door_pos, _target_pos) => format!("PassDoor({:?})", color),
         Goal::PickupSword => "PickupSword".to_string(),
-        Goal::PickupHealth => "PickupHealth".to_string(),
+        Goal::PickupHealth(_pos) => "PickupHealth".to_string(),
         Goal::AvoidEnemy(_pos) => "AvoidEnemy".to_string(),
         Goal::KillEnemy(_pos) => "KillEnemy".to_string(),
         Goal::FetchBoulder(_pos) => "FetchBoulder".to_string(),

@@ -4,39 +4,6 @@ use crate::swoq_interface::DirectedAction;
 use crate::types::{Color, Position};
 use crate::world_state::WorldState;
 
-/// Helper function to find a path for a player, avoiding collision with other player's path
-fn find_path_for_player(
-    world: &WorldState,
-    player_index: usize,
-    start: Position,
-    goal: Position,
-) -> Option<Vec<Position>> {
-    // For player 2, avoid player 1's path
-    if player_index == 1
-        && world.players.len() > 1
-        && let Some(ref p1_path) = world.players[0].current_path
-    {
-        debug!(
-            "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
-            start,
-            goal,
-            p1_path.len()
-        );
-        let result = world.map.find_path_avoiding_player(start, goal, p1_path);
-        if result.is_some() {
-            debug!("  ✓ Found path avoiding Player 1");
-            debug!("    Player 1 path: {:?}", p1_path);
-            debug!("    Player 2 path: {:?}", result);
-        } else {
-            debug!("  ✗ No path found avoiding Player 1");
-        }
-        return result;
-    }
-
-    // For player 1 or when player 1 has no path, use regular pathfinding
-    world.map.find_path(start, goal)
-}
-
 /// Helper function to determine if a new path should replace the current path
 /// Returns true if the new path is shorter than the old path (which is already trimmed)
 #[allow(dead_code)]
@@ -120,7 +87,7 @@ fn try_update_path_to_destination(world: &mut WorldState, player_index: usize) -
     let player_pos = world.players[player_index].position;
 
     if let Some(dest) = world.players[player_index].current_destination
-        && let Some(new_path) = find_path_for_player(world, player_index, player_pos, dest)
+        && let Some(new_path) = world.find_path_for_player(player_index, player_pos, dest)
     {
         if should_update_path(&new_path, world.players[player_index].current_path.as_ref()) {
             debug!("Updating path to destination {:?}, new path length={}", dest, new_path.len());
@@ -136,7 +103,7 @@ fn try_update_path_to_destination(world: &mut WorldState, player_index: usize) -
 fn try_keep_destination(world: &mut WorldState, player_index: usize) -> bool {
     let player_pos = world.players[player_index].position;
     if let Some(dest) = world.players[player_index].current_destination {
-        if let Some(new_path) = find_path_for_player(world, player_index, player_pos, dest) {
+        if let Some(new_path) = world.find_path_for_player(player_index, player_pos, dest) {
             debug!("Continuing to existing destination {:?}, path length={}", dest, new_path.len());
             world.players[player_index].current_path = Some(new_path);
             return true;
@@ -155,7 +122,7 @@ pub enum Goal {
     WaitOnPressurePlate(Color, Position),
     PassThroughDoor(Color, Position, Position), // door_pos, target_pos (beyond door)
     PickupSword,
-    PickupHealth,
+    PickupHealth(Position),
     AvoidEnemy(Position),
     KillEnemy(Position),
     FetchBoulder(Position),
@@ -182,7 +149,7 @@ impl Goal {
                 PassThroughDoorGoal(*door_pos, *target_pos).execute(world, player_index)
             }
             Goal::PickupSword => PickupSwordGoal.execute(world, player_index),
-            Goal::PickupHealth => PickupHealthGoal.execute(world, player_index),
+            Goal::PickupHealth(pos) => PickupHealthGoal(*pos).execute(world, player_index),
             Goal::ReachExit => ReachExitGoal.execute(world, player_index),
             Goal::KillEnemy(pos) => KillEnemyGoal(*pos).execute(world, player_index),
             Goal::AvoidEnemy(pos) => AvoidEnemyGoal(*pos).execute(world, player_index),
@@ -216,7 +183,7 @@ struct OpenDoorGoal(Color);
 struct WaitOnPressurePlateGoal(Position);
 struct PassThroughDoorGoal(Position, Position); // door_pos, target_pos
 struct PickupSwordGoal;
-struct PickupHealthGoal;
+struct PickupHealthGoal(Position);
 struct AvoidEnemyGoal(Position);
 struct KillEnemyGoal(Position);
 struct FetchBoulderGoal(Position);
@@ -251,7 +218,7 @@ impl ExecuteGoal for ExploreGoal {
                 );
             }
             attempts += 1;
-            if let Some(path) = find_path_for_player(world, player_index, player_pos, *target) {
+            if let Some(path) = world.find_path_for_player(player_index, player_pos, *target) {
                 debug!(
                     "New frontier destination: {:?}, path length={} (tried {} tiles)",
                     target,
@@ -294,7 +261,7 @@ impl ExecuteGoal for GetKeyGoal {
 
         // Compute new path
         world.players[player_index].current_destination = Some(key_pos);
-        let path = find_path_for_player(world, player_index, player_pos, key_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, key_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -349,7 +316,7 @@ impl ExecuteGoal for OpenDoorGoal {
         // Navigate to the empty neighbor of the door
         debug!("Navigating to neighbor {:?} of door at {:?}", target_pos, door_pos);
         world.players[player_index].current_destination = Some(target_pos);
-        let path = find_path_for_player(world, player_index, player_pos, target_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, target_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -369,7 +336,7 @@ impl ExecuteGoal for WaitOnPressurePlateGoal {
             // Navigate to the pressure plate using collision-aware pathfinding
             debug!("Navigating to pressure plate at {:?} to wait", plate_pos);
             world.players[player_index].current_destination = Some(plate_pos);
-            let path = find_path_for_player(world, player_index, player_pos, plate_pos)?;
+            let path = world.find_path_for_player(player_index, player_pos, plate_pos)?;
             world.players[player_index].current_path = Some(path.clone());
             path_to_action(player_pos, &path)
         }
@@ -443,7 +410,7 @@ impl ExecuteGoal for PassThroughDoorGoal {
         }
 
         // Otherwise, navigate to the neighbor position first
-        if let Some(path) = find_path_for_player(world, player_index, player_pos, neighbor_pos) {
+        if let Some(path) = world.find_path_for_player(player_index, player_pos, neighbor_pos) {
             debug!("Navigating to neighbor {:?} before door at {:?}", neighbor_pos, door_pos);
             world.players[player_index].current_destination = Some(neighbor_pos);
             world.players[player_index].current_path = Some(path.clone());
@@ -474,7 +441,7 @@ impl ExecuteGoal for PickupSwordGoal {
 
         // Compute new path
         world.players[player_index].current_destination = Some(sword_pos);
-        let path = find_path_for_player(world, player_index, player_pos, sword_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, sword_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -484,10 +451,10 @@ impl ExecuteGoal for PickupHealthGoal {
     fn execute(&self, world: &mut WorldState, player_index: usize) -> Option<DirectedAction> {
         let player = &world.players[player_index];
         let player_pos = player.position;
-        let health_pos = world.closest_health(&world.players[player_index])?;
-        debug!("PickupHealth: selected destination {:?}", health_pos);
+        let health_pos = self.0;
+        debug!("PickupHealth: going to destination {:?}", health_pos);
         world.players[player_index].current_destination = Some(health_pos);
-        let path = find_path_for_player(world, player_index, player_pos, health_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, health_pos)?;
         debug!("PickupHealth: path length={}", path.len());
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
@@ -500,7 +467,7 @@ impl ExecuteGoal for ReachExitGoal {
         let player_pos = player.position;
         let exit_pos = world.exit_position?;
         world.players[player_index].current_destination = Some(exit_pos);
-        let path = find_path_for_player(world, player_index, player_pos, exit_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, exit_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -520,7 +487,7 @@ impl ExecuteGoal for KillEnemyGoal {
         // Move adjacent to enemy
         for adjacent in enemy_pos.neighbors() {
             if world.map.is_walkable(&adjacent, adjacent)
-                && let Some(path) = find_path_for_player(world, player_index, player_pos, adjacent)
+                && let Some(path) = world.find_path_for_player(player_index, player_pos, adjacent)
             {
                 world.players[player_index].current_path = Some(path.clone());
                 return path_to_action(player_pos, &path);
@@ -551,7 +518,7 @@ impl ExecuteGoal for FetchBoulderGoal {
         // Navigate to an adjacent walkable position next to the boulder
         for adjacent in boulder_pos.neighbors() {
             if world.map.is_walkable(&adjacent, adjacent)
-                && let Some(path) = find_path_for_player(world, player_index, player_pos, adjacent)
+                && let Some(path) = world.find_path_for_player(player_index, player_pos, adjacent)
             {
                 debug!("Moving to adjacent position {:?} to reach boulder", adjacent);
                 world.players[player_index].current_destination = Some(adjacent);
@@ -578,7 +545,7 @@ impl ExecuteGoal for DropBoulderOnPlateGoal {
 
         // Navigate to the pressure plate
         world.players[player_index].current_destination = Some(plate_pos);
-        let path = find_path_for_player(world, player_index, player_pos, plate_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, plate_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
@@ -713,7 +680,7 @@ impl ExecuteGoal for RandomExploreGoal {
 
         // Try to path to the random position
         world.players[player_index].current_destination = Some(target_pos);
-        let path = find_path_for_player(world, player_index, player_pos, target_pos)?;
+        let path = world.find_path_for_player(player_index, player_pos, target_pos)?;
         world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }

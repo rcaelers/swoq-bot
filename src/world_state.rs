@@ -5,7 +5,6 @@ use tracing::{debug, warn};
 use crate::boulder_tracker::BoulderTracker;
 use crate::item_tracker::{ColoredItemTracker, ItemTracker};
 use crate::map::Map;
-use crate::pathfinding::AStar;
 use crate::player_state::PlayerState;
 use crate::swoq_interface::{Inventory, State, Tile};
 use crate::types::{Bounds, Color, Position};
@@ -567,10 +566,6 @@ impl WorldState {
             .copied()
     }
 
-    pub fn closest_health(&self, player: &PlayerState) -> Option<Position> {
-        self.health.closest_to(player.position)
-    }
-
     pub fn closest_sword(&self, player: &PlayerState) -> Option<Position> {
         self.swords.closest_to(player.position)
     }
@@ -613,36 +608,6 @@ impl WorldState {
         } else {
             manhattan_dist
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn is_walkable_avoiding_enemies(&self, pos: &Position, goal: Position) -> bool {
-        // First check basic walkability
-        if !self.map.is_walkable(pos, goal) {
-            return false;
-        }
-
-        // Don't walk on tiles adjacent to enemies (unless it's the goal)
-        if *pos != goal {
-            for enemy_pos in self.enemies.get_positions() {
-                if pos.is_adjacent(enemy_pos) {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
-    #[allow(dead_code)]
-    pub fn find_path_avoiding_enemies(
-        &self,
-        start: Position,
-        goal: Position,
-    ) -> Option<Vec<Position>> {
-        AStar::find_path(&self.map, start, goal, |pos, goal| {
-            self.is_walkable_avoiding_enemies(pos, goal)
-        })
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
@@ -775,5 +740,38 @@ impl WorldState {
         self.players
             .iter()
             .any(|p| !p.unexplored_frontier.is_empty())
+    }
+
+    /// Find a path for a player, avoiding collision with other player's path
+    pub fn find_path_for_player(
+        &self,
+        player_index: usize,
+        start: Position,
+        goal: Position,
+    ) -> Option<Vec<Position>> {
+        // For player 2, avoid player 1's path
+        if player_index == 1
+            && self.players.len() > 1
+            && let Some(ref p1_path) = self.players[0].current_path
+        {
+            debug!(
+                "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
+                start,
+                goal,
+                p1_path.len()
+            );
+            let result = self.map.find_path_avoiding_player(start, goal, p1_path);
+            if result.is_some() {
+                debug!("  ✓ Found path avoiding Player 1");
+                debug!("    Player 1 path: {:?}", p1_path);
+                debug!("    Player 2 path: {:?}", result);
+            } else {
+                debug!("  ✗ No path found avoiding Player 1");
+            }
+            return result;
+        }
+
+        // For player 1 or when player 1 has no path, use regular pathfinding
+        self.map.find_path(start, goal)
     }
 }

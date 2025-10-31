@@ -66,13 +66,12 @@ async fn run_game_loop(
                 }
                 Err(e) => {
                     tracing::error!("Game failed: {:?}", e);
-                    tracing::info!("Stopping loop mode due to game failure");
-                    break;
+                    tracing::error!("HALTING: Loop mode stopped due to game failure");
+                    return Err(e);
                 }
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
-        Ok(())
     } else {
         game.run(level, seed).await
     }
