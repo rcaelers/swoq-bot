@@ -69,10 +69,14 @@ impl BoulderOnPlateStrategy {
                     );
                     true
                 // Remove if in FetchBoulder phase and boulder no longer exists
+                // BUT only if the player doesn't have a boulder (if they do, update_phases will handle it)
                 } else if let BoulderPlatePhase::FetchBoulder(boulder_pos) = assignment.phase {
-                    if !world.boulders.get_all_positions().contains(&boulder_pos) {
+                    let player = &world.players[assignment.player_index];
+                    if !world.boulders.get_all_positions().contains(&boulder_pos)
+                        && player.inventory != crate::swoq_interface::Inventory::Boulder
+                    {
                         debug!(
-                            "Removing boulder/plate assignment for {:?}: boulder at {:?} no longer exists",
+                            "Removing boulder/plate assignment for {:?}: boulder at {:?} no longer exists and player doesn't have it",
                             assignment.color, boulder_pos
                         );
                         true
