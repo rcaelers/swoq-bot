@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use tracing::debug;
 
 use crate::goals::Goal;

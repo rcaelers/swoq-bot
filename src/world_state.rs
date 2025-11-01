@@ -589,15 +589,6 @@ impl WorldState {
         self.swords.closest_to(player.position)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    pub fn doors_without_keys(&self, player: &PlayerState) -> Vec<Color> {
-        self.doors
-            .colors()
-            .filter(|color| !self.has_key(player, **color) && !self.has_door_been_opened(**color))
-            .copied()
-            .collect()
-    }
-
     #[allow(dead_code)]
     pub fn closest_door_of_color(&self, player: &PlayerState, color: Color) -> Option<Position> {
         self.doors.closest_to(color, player.position)

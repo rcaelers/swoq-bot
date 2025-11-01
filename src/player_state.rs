@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use crate::map::Map;
-use crate::swoq_interface::{Inventory, Tile};
+use crate::swoq_interface::Inventory;
 use crate::types::Position;
 
 #[allow(dead_code)]
@@ -21,7 +20,6 @@ pub trait Player {
     fn set_current_goal(&mut self, goal: Option<crate::goals::Goal>);
     fn set_previous_goal(&mut self, goal: Option<crate::goals::Goal>);
 
-    fn update_frontier(&mut self, map: &Map);
     fn sorted_unexplored(&self) -> Vec<Position>;
 }
 
@@ -65,31 +63,6 @@ impl PlayerState {
         self.current_destination = None;
         self.current_path = None;
         self.unexplored_frontier.clear();
-    }
-
-    #[tracing::instrument(level = "trace", skip(self, map))]
-    pub fn update_frontier(&mut self, map: &Map) {
-        let mut frontier = map.compute_reachable_positions(self.position, |pos| {
-            // Optimistic walkability: treat Unknown and None as walkable
-            match map.get(pos) {
-                Some(Tile::Wall) | Some(Tile::Boulder) | Some(Tile::Enemy) | Some(Tile::Exit) => {
-                    false
-                }
-                // Doors without keys are barriers - check player inventory only
-                Some(Tile::DoorRed) => matches!(self.inventory, Inventory::KeyRed),
-                Some(Tile::DoorGreen) => matches!(self.inventory, Inventory::KeyGreen),
-                Some(Tile::DoorBlue) => matches!(self.inventory, Inventory::KeyBlue),
-                // Unknown and None are optimistically walkable
-                _ => true,
-            }
-        });
-
-        // Filter to only keep positions that are actually Unknown or None
-        // This ensures the frontier only contains unexplored tiles
-        frontier.retain(|pos| matches!(map.get(pos), Some(Tile::Unknown) | None));
-
-        self.unexplored_frontier = frontier;
-        tracing::trace!(frontier_size = self.unexplored_frontier.len(), "Frontier updated");
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
@@ -153,10 +126,6 @@ impl Player for PlayerState {
         self.previous_goal = goal;
     }
 
-    fn update_frontier(&mut self, map: &Map) {
-        self.update_frontier(map);
-    }
-
     fn sorted_unexplored(&self) -> Vec<Position> {
         self.sorted_unexplored()
     }
@@ -213,10 +182,6 @@ impl Player for &mut PlayerState {
 
     fn set_previous_goal(&mut self, goal: Option<crate::goals::Goal>) {
         self.previous_goal = goal;
-    }
-
-    fn update_frontier(&mut self, map: &Map) {
-        PlayerState::update_frontier(self, map);
     }
 
     fn sorted_unexplored(&self) -> Vec<Position> {
