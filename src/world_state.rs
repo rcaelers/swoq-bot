@@ -863,10 +863,10 @@ impl WorldState {
                 if *pos == other_player_path[tick_index] {
                     return false;
                 }
-            } else if let Some(last_pos) = other_player_path.last() {
-                if *pos == *last_pos {
-                    return false;
-                }
+            } else if let Some(last_pos) = other_player_path.last()
+                && *pos == *last_pos
+            {
+                return false;
             }
 
             // Check swap collisions
