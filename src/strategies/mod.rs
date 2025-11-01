@@ -2,11 +2,9 @@
 pub mod planner;
 
 pub mod attack_or_flee_enemy;
+pub mod boulder_on_plate;
 pub mod cooperative_door_passage;
-pub mod drop_boulder;
-pub mod drop_boulder_on_plate;
 pub mod fallback_pressure_plate;
-pub mod fetch_boulder_for_plate;
 pub mod hunt_enemy_with_sword;
 pub mod key_and_door;
 pub mod move_unexplored_boulder;
