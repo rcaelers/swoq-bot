@@ -742,6 +742,22 @@ impl WorldState {
             .any(|p| !p.unexplored_frontier.is_empty())
     }
 
+    /// Check if there are any boulders that are not currently on pressure plates
+    pub fn has_boulders_not_on_plates(&self) -> bool {
+        // Get all pressure plate positions across all colors
+        let all_plate_positions: HashSet<Position> = [Color::Red, Color::Green, Color::Blue]
+            .iter()
+            .filter_map(|&color| self.pressure_plates.get_positions(color))
+            .flatten()
+            .copied()
+            .collect();
+
+        // Check if any boulder position is not on a plate
+        self.map.tiles().iter().any(|(pos, tile)| {
+            matches!(tile, Tile::Boulder) && !all_plate_positions.contains(pos)
+        })
+    }
+
     /// Find a path for a player, avoiding collision with other player's path
     pub fn find_path_for_player(
         &self,

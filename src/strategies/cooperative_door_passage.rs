@@ -381,8 +381,8 @@ impl CooperativeDoorPassageStrategy {
             return vec![None; world.players.len()];
         }
 
-        if world.map.has_boulders() {
-            debug!("CoopPressurePlateDoorStrategy: Boulders known, preferring boulder solution");
+        if world.has_boulders_not_on_plates() {
+            debug!("CoopPressurePlateDoorStrategy: Boulders not on plates exist, preferring boulder solution");
             return vec![None; world.players.len()];
         }
 
