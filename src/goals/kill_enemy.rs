@@ -19,7 +19,7 @@ impl ExecuteGoal for KillEnemyGoal {
 
         // Move adjacent to enemy
         for adjacent in enemy_pos.neighbors() {
-            if world.map.is_walkable(&adjacent, adjacent)
+            if world.is_walkable(&adjacent, adjacent)
                 && let Some(path) = world.find_path_for_player(player_index, player_pos, adjacent)
             {
                 world.players[player_index].current_path = Some(path.clone());

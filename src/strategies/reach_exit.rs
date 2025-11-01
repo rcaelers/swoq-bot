@@ -25,7 +25,7 @@ impl SelectGoal for ReachExitStrategy {
             if active_players.len() > 1 {
                 let all_can_reach = active_players.iter().all(|p| {
                     p.inventory == crate::swoq_interface::Inventory::Boulder
-                        || world.map.find_path(p.position, exit_pos).is_some()
+                        || world.find_path(p.position, exit_pos).is_some()
                 });
 
                 // If not all active players can reach the exit, don't assign exit goal to anyone
@@ -45,7 +45,7 @@ impl SelectGoal for ReachExitStrategy {
         }
 
         // Check if we can actually path to the exit
-        if world.map.find_path(player.position, exit_pos).is_some() {
+        if world.find_path(player.position, exit_pos).is_some() {
             Some(Goal::ReachExit)
         } else {
             debug!("Exit at {:?} is not reachable, continuing exploration", exit_pos);

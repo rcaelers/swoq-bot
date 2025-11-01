@@ -33,12 +33,12 @@ impl ExecuteGoal for OpenDoorGoal {
                     continue;
                 }
 
-                if !world.map.is_walkable(&neighbor, neighbor) {
+                if !world.is_walkable(&neighbor, neighbor) {
                     continue;
                 }
 
                 // Try to path to this neighbor
-                if let Some(path) = world.map.find_path(player_pos, neighbor) {
+                if let Some(path) = world.find_path(player_pos, neighbor) {
                     let path_len = path.len();
                     if best_target.is_none() || path_len < best_target.unwrap().2 {
                         best_target = Some((door_pos, neighbor, path_len));

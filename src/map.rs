@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::pathfinding::AStar;
 use crate::swoq_interface::Tile;
 use crate::types::Position;
 
@@ -50,95 +49,6 @@ impl Map {
 
     pub fn iter(&self) -> impl Iterator<Item = (&Position, &Tile)> {
         self.tiles.iter()
-    }
-
-    pub fn is_walkable(&self, pos: &Position, goal: Position) -> bool {
-        match self.get(pos) {
-            Some(
-                Tile::Empty
-                | Tile::Player // TODO: check 2UP conflict
-                | Tile::PressurePlateRed
-                | Tile::PressurePlateGreen
-                | Tile::PressurePlateBlue
-                | Tile::Treasure
-            ) => true,
-            // Keys: always avoid unless it's the destination
-            Some(Tile::KeyRed | Tile::KeyGreen | Tile::KeyBlue | Tile::Sword | Tile::Health | Tile::Exit  | Tile::Unknown) => {
-                // Allow walking on the destination key, avoid all others
-                *pos == goal
-            }
-            None => *pos == goal,
-            _ => false,
-        }
-    }
-
-    pub fn find_path(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
-        AStar::find_path(self, start, goal, |pos, goal, _tick| self.is_walkable(pos, goal))
-    }
-
-    /// Find a path with custom walkability checking logic.
-    /// The closure receives (position, goal, tick) and should return true if the position is walkable.
-    pub fn find_path_with_custom_walkability<F>(
-        &self,
-        start: Position,
-        goal: Position,
-        is_walkable: F,
-    ) -> Option<Vec<Position>>
-    where
-        F: Fn(&Position, Position, i32) -> bool,
-    {
-        AStar::find_path(self, start, goal, is_walkable)
-    }
-
-    /// Find a path that avoids colliding with another player's planned path.
-    /// For each position at step N in our path, we avoid:
-    /// 1. The position where the other player is at step N (same tick collision)
-    /// 2. The position where the other player was at step N-1 (swap if P2 moves first)
-    /// 3. The position where the other player will be at step N+1 (swap if P1 moves first)
-    pub fn find_path_avoiding_player(
-        &self,
-        start: Position,
-        goal: Position,
-        other_player_path: &[Position],
-    ) -> Option<Vec<Position>> {
-        AStar::find_path(self, start, goal, |pos, goal_pos, tick| {
-            // First check basic walkability
-            if !self.is_walkable(pos, goal_pos) {
-                return false;
-            }
-
-            let tick_index = tick as usize;
-
-            // Check if the other player is at this position at this tick (same tick collision)
-            if tick_index < other_player_path.len() {
-                if *pos == other_player_path[tick_index] {
-                    return false; // Would collide at this tick
-                }
-            } else if let Some(last_pos) = other_player_path.last() {
-                // Other player has finished their path, check their final position
-                if *pos == *last_pos {
-                    return false; // Other player is resting here
-                }
-            }
-
-            // Check swap collision: P2 moving to where P1 was (P2 moves first)
-            // path_player2[tick] cannot be path_player1[tick-1]
-            if tick_index > 0
-                && tick_index - 1 < other_player_path.len()
-                && *pos == other_player_path[tick_index - 1]
-            {
-                return false; // Would swap with P1
-            }
-
-            // Check swap collision: P2 moving to where P1 will be (P1 moves first)
-            // path_player2[tick] cannot be path_player1[tick+1]
-            if tick_index + 1 < other_player_path.len() && *pos == other_player_path[tick_index + 1]
-            {
-                return false; // Would swap with P1
-            }
-
-            true
-        })
     }
 
     /// Compute all reachable positions from start using a walkability checker.

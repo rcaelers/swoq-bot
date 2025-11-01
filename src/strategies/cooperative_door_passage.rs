@@ -298,7 +298,7 @@ impl CooperativeDoorPassageStrategy {
         plate_pos: Position,
         door_pos: Position,
     ) -> PlayerReachability {
-        let path_to_plate = world.map.find_path(player_pos, plate_pos);
+        let path_to_plate = world.find_path(player_pos, plate_pos);
         let can_reach_plate = path_to_plate.is_some();
         let distance_to_plate = path_to_plate
             .as_ref()
@@ -307,7 +307,7 @@ impl CooperativeDoorPassageStrategy {
 
         let path_to_door = door_pos.neighbors().iter().find_map(|&neighbor| {
             if matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty)) {
-                world.map.find_path(player_pos, neighbor)
+                world.find_path(player_pos, neighbor)
             } else {
                 None
             }
@@ -343,11 +343,9 @@ impl CooperativeDoorPassageStrategy {
     /// Check if either player can already reach the target position
     fn is_target_already_reachable(&self, world: &WorldState, target_pos: Position) -> bool {
         world
-            .map
             .find_path(world.players[0].position, target_pos)
             .is_some()
             || world
-                .map
                 .find_path(world.players[1].position, target_pos)
                 .is_some()
     }

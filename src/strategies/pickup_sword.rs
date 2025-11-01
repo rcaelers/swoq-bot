@@ -44,7 +44,7 @@ impl SelectGoal for PickupSwordStrategy {
                 }
 
                 // Check if this player can reach this sword
-                if let Some(path) = world.map.find_path(player.position, *sword_pos) {
+                if let Some(path) = world.find_path(player.position, *sword_pos) {
                     let distance = path.len();
                     let should_select = match best_player {
                         None => true,

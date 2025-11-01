@@ -73,7 +73,7 @@ impl SelectGoal for FallbackPressurePlateStrategy {
                     let distance = if player.position.is_adjacent(&plate_pos) {
                         0 // Already adjacent
                     } else {
-                        match world.map.find_path(player.position, plate_pos) {
+                        match world.find_path(player.position, plate_pos) {
                             Some(path) => path.len() as i32,
                             None => continue, // Can't reach this plate
                         }

@@ -5,6 +5,7 @@ use tracing::{debug, warn};
 use crate::boulder_tracker::BoulderTracker;
 use crate::item_tracker::{ColoredItemTracker, ItemTracker};
 use crate::map::Map;
+use crate::pathfinding::AStar;
 use crate::player_state::PlayerState;
 use crate::swoq_interface::{Inventory, State, Tile};
 use crate::types::{Bounds, Color, Position};
@@ -594,7 +595,7 @@ impl WorldState {
 
     /// Get the actual path distance between two positions, returns None if unreachable
     pub fn path_distance(&self, from: Position, to: Position) -> Option<i32> {
-        self.map.find_path(from, to).map(|path| path.len() as i32)
+        self.find_path(from, to).map(|path| path.len() as i32)
     }
 
     /// Get the path distance to an enemy position.
@@ -753,8 +754,126 @@ impl WorldState {
             .collect();
 
         // Check if any boulder position is not on a plate
-        self.map.tiles().iter().any(|(pos, tile)| {
-            matches!(tile, Tile::Boulder) && !all_plate_positions.contains(pos)
+        self.map
+            .tiles()
+            .iter()
+            .any(|(pos, tile)| matches!(tile, Tile::Boulder) && !all_plate_positions.contains(pos))
+    }
+
+    /// Check if a position is walkable, considering pressure plate states
+    pub fn is_walkable(&self, pos: &Position, goal: Position) -> bool {
+        match self.map.get(pos) {
+            Some(
+                Tile::Empty
+                | Tile::Player
+                | Tile::PressurePlateRed
+                | Tile::PressurePlateGreen
+                | Tile::PressurePlateBlue
+                | Tile::Treasure,
+            ) => true,
+            // Doors are walkable if their corresponding pressure plate is pressed
+            Some(Tile::DoorRed) => self.is_door_open(Color::Red),
+            Some(Tile::DoorGreen) => self.is_door_open(Color::Green),
+            Some(Tile::DoorBlue) => self.is_door_open(Color::Blue),
+            // Keys: always avoid unless it's the destination
+            Some(
+                Tile::KeyRed
+                | Tile::KeyGreen
+                | Tile::KeyBlue
+                | Tile::Sword
+                | Tile::Health
+                | Tile::Exit
+                | Tile::Unknown,
+            ) => {
+                // Allow walking on the destination key, avoid all others
+                *pos == goal
+            }
+            None => *pos == goal,
+            _ => false,
+        }
+    }
+
+    /// Check if a door is open (has a player or boulder on its pressure plate)
+    fn is_door_open(&self, color: Color) -> bool {
+        if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
+            // Check if any player is on a matching plate
+            for player in &self.players {
+                if plate_positions.contains(&player.position) {
+                    return true;
+                }
+            }
+
+            // Check if any boulder is on a matching plate
+            for plate_pos in plate_positions {
+                if matches!(self.map.get(plate_pos), Some(Tile::Boulder)) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Find a path from start to goal, considering pressure plate states
+    pub fn find_path(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
+        AStar::find_path(&self.map, start, goal, |pos, goal_pos, _tick| {
+            self.is_walkable(pos, goal_pos)
+        })
+    }
+
+    /// Find a path with custom walkability checking logic.
+    /// The closure receives (position, goal, tick) and should return true if the position is walkable.
+    pub fn find_path_with_custom_walkability<F>(
+        &self,
+        start: Position,
+        goal: Position,
+        is_walkable: F,
+    ) -> Option<Vec<Position>>
+    where
+        F: Fn(&Position, Position, i32) -> bool,
+    {
+        AStar::find_path(&self.map, start, goal, is_walkable)
+    }
+
+    /// Find a path that avoids colliding with another player's planned path
+    pub fn find_path_avoiding_player(
+        &self,
+        start: Position,
+        goal: Position,
+        other_player_path: &[Position],
+    ) -> Option<Vec<Position>> {
+        AStar::find_path(&self.map, start, goal, |pos, goal_pos, tick| {
+            // First check basic walkability (including door states)
+            if !self.is_walkable(pos, goal_pos) {
+                return false;
+            }
+
+            let tick_index = tick as usize;
+
+            // Check if the other player is at this position at this tick
+            if tick_index < other_player_path.len() {
+                if *pos == other_player_path[tick_index] {
+                    return false;
+                }
+            } else if let Some(last_pos) = other_player_path.last() {
+                if *pos == *last_pos {
+                    return false;
+                }
+            }
+
+            // Check swap collisions
+            if tick_index > 0
+                && tick_index - 1 < other_player_path.len()
+                && *pos == other_player_path[tick_index - 1]
+            {
+                return false;
+            }
+
+            if tick_index + 1 < other_player_path.len() && *pos == other_player_path[tick_index + 1]
+            {
+                return false;
+            }
+
+            true
         })
     }
 
@@ -776,7 +895,7 @@ impl WorldState {
                 goal,
                 p1_path.len()
             );
-            let result = self.map.find_path_avoiding_player(start, goal, p1_path);
+            let result = self.find_path_avoiding_player(start, goal, p1_path);
             if result.is_some() {
                 debug!("  ✓ Found path avoiding Player 1");
                 debug!("    Player 1 path: {:?}", p1_path);
@@ -788,6 +907,6 @@ impl WorldState {
         }
 
         // For player 1 or when player 1 has no path, use regular pathfinding
-        self.map.find_path(start, goal)
+        self.find_path(start, goal)
     }
 }

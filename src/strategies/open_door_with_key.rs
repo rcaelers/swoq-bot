@@ -61,7 +61,7 @@ impl SelectGoal for OpenDoorWithKeyStrategy {
                         let distance = if player.position == neighbor {
                             0 // Already at the door
                         } else {
-                            match world.map.find_path(player.position, neighbor) {
+                            match world.find_path(player.position, neighbor) {
                                 Some(path) => path.len() as i32,
                                 None => continue, // Can't reach this neighbor
                             }

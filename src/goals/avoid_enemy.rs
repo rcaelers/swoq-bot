@@ -24,7 +24,7 @@ impl AvoidEnemyGoal {
 
         for (action, new_pos) in actions {
             // Only consider walkable positions
-            if !world.map.is_walkable(&new_pos, new_pos) {
+            if !world.is_walkable(&new_pos, new_pos) {
                 continue;
             }
 

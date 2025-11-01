@@ -22,7 +22,7 @@ impl ExecuteGoal for FetchBoulderGoal {
 
         // Navigate to an adjacent walkable position next to the boulder
         for adjacent in boulder_pos.neighbors() {
-            if world.map.is_walkable(&adjacent, adjacent)
+            if world.is_walkable(&adjacent, adjacent)
                 && let Some(path) = world.find_path_for_player(player_index, player_pos, adjacent)
             {
                 debug!("Moving to adjacent position {:?} to reach boulder", adjacent);

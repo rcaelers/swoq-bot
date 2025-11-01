@@ -30,7 +30,7 @@ impl SelectGoal for GetKeyForDoorStrategy {
                     // Check if any player can reach any plate of this color
                     let can_reach_plate = world.players.iter().any(|player| {
                         plates.iter().any(|&plate_pos| {
-                            world.map.find_path(player.position, plate_pos).is_some()
+                            world.find_path(player.position, plate_pos).is_some()
                         })
                     });
                     if can_reach_plate {
@@ -67,7 +67,7 @@ impl SelectGoal for GetKeyForDoorStrategy {
                         
                         // In 2-player mode with reachable pressure plate, treat matching doors as walkable
                         let can_reach = if world.is_two_player_mode() && doors_with_plates.contains(&color) {
-                            world.map.find_path_with_custom_walkability(player.position, key_pos, |pos, goal, _tick| {
+                            world.find_path_with_custom_walkability(player.position, key_pos, |pos, goal, _tick| {
                                 // Check if this door matches our target color and we have a reachable plate
                                 let is_matching_door = matches!((world.map.get(pos), color), 
                                         (Some(crate::swoq_interface::Tile::DoorRed), Color::Red) | 
@@ -77,11 +77,11 @@ impl SelectGoal for GetKeyForDoorStrategy {
                                     debug!("Treating {:?} door at {:?} as walkable (plate reachable in 2P mode)", color, pos);
                                     true
                                 } else {
-                                    world.map.is_walkable(pos, goal)
+                                    world.is_walkable(pos, goal)
                                 }
                             }).is_some()
                         } else {
-                            world.map.find_path(player.position, key_pos).is_some()
+                            world.find_path(player.position, key_pos).is_some()
                         };
                         
                         if can_reach {

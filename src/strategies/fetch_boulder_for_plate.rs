@@ -60,7 +60,7 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
                 let can_reach_door = door_positions.iter().any(|&door_pos| {
                     door_pos.neighbors().iter().any(|&neighbor| {
                         matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty))
-                            && world.map.find_path(player.position, neighbor).is_some()
+                            && world.find_path(player.position, neighbor).is_some()
                     })
                 });
 
@@ -76,8 +76,8 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
                     {
                         // Verify the boulder is still reachable
                         let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                            world.map.is_walkable(&adj, adj)
-                                && world.map.find_path(player.position, adj).is_some()
+                            world.is_walkable(&adj, adj)
+                                && world.find_path(player.position, adj).is_some()
                         });
 
                         if can_reach {
@@ -105,8 +105,8 @@ impl SelectGoal for FetchBoulderForPlateStrategy {
 
                     // Check if we can reach an adjacent position to pick it up
                     let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                        world.map.is_walkable(&adj, adj)
-                            && world.map.find_path(player.position, adj).is_some()
+                        world.is_walkable(&adj, adj)
+                            && world.find_path(player.position, adj).is_some()
                     });
 
                     if can_reach {

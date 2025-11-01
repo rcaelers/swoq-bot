@@ -54,8 +54,8 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
 
                     // Check if we can reach an adjacent position to pick it up
                     let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                        world.map.is_walkable(&adj, adj)
-                            && world.map.find_path(player.position, adj).is_some()
+                        world.is_walkable(&adj, adj)
+                            && world.find_path(player.position, adj).is_some()
                     });
 
                     if can_reach {

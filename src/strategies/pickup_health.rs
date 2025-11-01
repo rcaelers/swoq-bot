@@ -48,7 +48,7 @@ impl SelectGoal for PickupHealthStrategy {
                 }
 
                 // Check if this player can reach this health potion
-                if let Some(path) = world.map.find_path(player.position, *health_pos) {
+                if let Some(path) = world.find_path(player.position, *health_pos) {
                     let distance = path.len();
                     let should_select = match best_player {
                         None => true,

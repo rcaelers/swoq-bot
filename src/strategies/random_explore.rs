@@ -59,7 +59,7 @@ impl SelectGoal for RandomExploreStrategy {
             let target = empty_positions[index];
 
             // Check if reachable
-            if world.map.find_path(player.position, target).is_some() {
+            if world.find_path(player.position, target).is_some() {
                 debug!("RandomExploreStrategy: Selected reachable position {:?}", target);
                 return Some(Goal::RandomExplore(target));
             }

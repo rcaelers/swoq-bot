@@ -129,7 +129,7 @@ pub fn validate_and_trim_path(world: &mut WorldState, player_index: usize) {
             && remaining_path.last() == Some(&dest)
             && remaining_path
                 .iter()
-                .all(|&pos| world.map.is_walkable(&pos, dest));
+                .all(|&pos| world.is_walkable(&pos, dest));
 
         if !path_valid {
             debug!("Old path is no longer valid, clearing but keeping destination");
