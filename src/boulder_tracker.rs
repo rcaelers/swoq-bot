@@ -85,13 +85,23 @@ impl BoulderTracker {
         }
 
         // Remove boulders that have been picked up (turned to Empty or other non-boulder tiles)
+        // But keep boulders that are on pressure plates (tile shows as PressurePlate*, not Boulder)
         let all_boulder_positions = self.get_all_positions();
         for pos in all_boulder_positions {
-            if let Some(tile) = map.get(&pos)
-                && !matches!(tile, Tile::Boulder)
-            {
-                debug!("Boulder at {:?} was picked up or destroyed", pos);
-                self.remove_boulder(&pos);
+            if let Some(tile) = map.get(&pos) {
+                let keep_boulder = matches!(
+                    tile,
+                    Tile::Boulder
+                        | Tile::PressurePlateRed
+                        | Tile::PressurePlateGreen
+                        | Tile::PressurePlateBlue
+                );
+                if !keep_boulder {
+                    debug!("Boulder at {:?} was picked up or destroyed (tile: {:?})", pos, tile);
+                    self.remove_boulder(&pos);
+                } else {
+                    debug!("Keeping boulder at {:?} (tile: {:?})", pos, tile);
+                }
             }
         }
     }

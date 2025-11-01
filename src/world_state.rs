@@ -131,8 +131,17 @@ impl WorldState {
         }
 
         self.integrate_surroundings(all_surroundings);
-        for player in self.players.iter_mut() {
-            player.update_frontier(&self.map);
+
+        // Update frontier for each player, considering door states
+        for i in 0..self.players.len() {
+            let player_pos = self.players[i].position;
+            let player_inventory = self.players[i].inventory;
+            let mut frontier = self.compute_reachable_positions(player_pos, player_inventory);
+
+            // Filter to only keep positions that are actually Unknown or None
+            frontier.retain(|pos| matches!(self.map.get(pos), Some(Tile::Unknown) | None));
+
+            self.players[i].unexplored_frontier = frontier;
         }
     }
 
@@ -440,8 +449,9 @@ impl WorldState {
         );
 
         // Update pressure plates using ColoredItemTracker
-        // Special case: pressure plates are still there even if a player is standing on them
+        // Special case: pressure plates are still there even if a player or boulder is on them
         let player_positions: Vec<Position> = self.players.iter().map(|p| p.position).collect();
+        let boulder_positions = self.boulders.get_all_positions();
         self.pressure_plates.update_with_positions(
             seen_items.pressure_plates,
             &self.map,
@@ -450,6 +460,7 @@ impl WorldState {
                     tile,
                     Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
                 ) || (matches!(tile, Tile::Player) && player_positions.contains(pos))
+                    || (matches!(tile, Tile::Boulder) && boulder_positions.contains(pos))
             },
             all_bounds,
         );
@@ -520,21 +531,28 @@ impl WorldState {
     pub fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Position>> {
         let mut result: HashMap<Color, Vec<Position>> = HashMap::new();
 
+        tracing::debug!("get_boulders_on_plates: checking {} boulders", self.boulders.len());
+
         // Check each color's pressure plates to see if a boulder is on any of them
         for &color in &[Color::Red, Color::Green, Color::Blue] {
             if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
+                tracing::debug!("Checking {:?} plates: {:?}", color, plate_positions);
                 for &plate_pos in plate_positions {
                     // Check if there's a boulder at this plate position
-                    if let Some(tile) = self.map.get(&plate_pos)
-                        && matches!(tile, Tile::Boulder)
-                        && self.boulders.contains(&plate_pos)
-                    {
+                    // The tile will show as PressurePlate*, not Boulder, so just check the boulder tracker
+                    if self.boulders.contains(&plate_pos) {
+                        tracing::info!(
+                            "Found boulder on {:?} pressure plate at {:?}",
+                            color,
+                            plate_pos
+                        );
                         result.entry(color).or_default().push(plate_pos);
                     }
                 }
             }
         }
 
+        tracing::debug!("get_boulders_on_plates result: {:?}", result);
         result
     }
 
@@ -908,5 +926,91 @@ impl WorldState {
 
         // For player 1 or when player 1 has no path, use regular pathfinding
         self.find_path(start, goal)
+    }
+
+    /// Compute all reachable positions from start, considering door states.
+    /// Returns a HashSet of reachable frontier positions
+    /// (positions that are Unknown or None and adjacent to explored/known tiles).
+    /// This combines reachability checking with frontier detection in a single pass.
+    #[tracing::instrument(level = "trace", skip(self), fields(start_x = start.x, start_y = start.y))]
+    pub fn compute_reachable_positions(
+        &self,
+        start: Position,
+        player_inventory: Inventory,
+    ) -> HashSet<Position> {
+        let mut reachable = HashSet::new();
+        let mut frontier = HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        reachable.insert(start);
+        queue.push_back(start);
+
+        while let Some(current) = queue.pop_front() {
+            for neighbor in current.neighbors() {
+                // Skip if already visited
+                if reachable.contains(&neighbor) {
+                    continue;
+                }
+
+                // Check bounds
+                if neighbor.x < 0
+                    || neighbor.x >= self.map.width
+                    || neighbor.y < 0
+                    || neighbor.y >= self.map.height
+                {
+                    continue;
+                }
+
+                // Check if this is an unexplored tile (frontier candidate)
+                let is_unexplored = matches!(self.map.get(&neighbor), Some(Tile::Unknown) | None);
+
+                // Check walkability with optimistic assumptions for frontier detection
+                let walkable = match self.map.get(&neighbor) {
+                    Some(Tile::Wall) | Some(Tile::Boulder) | Some(Tile::Enemy)
+                    | Some(Tile::Exit) => false,
+                    // Doors: check if player has key OR if door is currently open
+                    Some(Tile::DoorRed) => {
+                        matches!(player_inventory, Inventory::KeyRed)
+                            || self.is_door_open(Color::Red)
+                    }
+                    Some(Tile::DoorGreen) => {
+                        matches!(player_inventory, Inventory::KeyGreen)
+                            || self.is_door_open(Color::Green)
+                    }
+                    Some(Tile::DoorBlue) => {
+                        matches!(player_inventory, Inventory::KeyBlue)
+                            || self.is_door_open(Color::Blue)
+                    }
+                    // Unknown and None are optimistically walkable
+                    _ => true,
+                };
+
+                if walkable {
+                    reachable.insert(neighbor);
+                    queue.push_back(neighbor);
+
+                    // If this is unexplored and we reached it from an explored tile,
+                    // it's part of the frontier
+                    if is_unexplored {
+                        // Check if current position is explored (not Unknown/None)
+                        let current_is_explored = match self.map.get(&current) {
+                            Some(Tile::Unknown) | None => false,
+                            Some(_) => true,
+                        };
+
+                        if current_is_explored {
+                            frontier.insert(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::trace!(
+            frontier_size = frontier.len(),
+            reachable_size = reachable.len(),
+            "Frontier computation complete"
+        );
+        frontier
     }
 }
