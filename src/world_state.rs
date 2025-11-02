@@ -812,6 +812,22 @@ impl WorldState {
         goal: Position,
         other_player_path: &[Position],
     ) -> Option<Vec<Position>> {
+        // Check if the start position itself conflicts with the other player's path
+        // At tick 0, we can't start where the other player is
+        if !other_player_path.is_empty() && start == other_player_path[0] {
+            debug!("  ✗ Start position {:?} conflicts with other player at tick 0", start);
+            return None;
+        }
+
+        // Check if start position is where the other player will be at tick 1 (swap collision)
+        if other_player_path.len() > 1 && start == other_player_path[1] {
+            debug!(
+                "  ✗ Start position {:?} would cause swap collision with other player at tick 1",
+                start
+            );
+            return None;
+        }
+
         AStar::find_path(&self.map, start, goal, |pos, goal_pos, tick| {
             // First check basic walkability (including door states)
             if !self.is_walkable(pos, goal_pos) {

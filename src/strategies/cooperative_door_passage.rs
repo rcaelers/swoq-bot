@@ -341,8 +341,8 @@ impl CooperativeDoorPassageStrategy {
                     "player_can_reach_plate_and_door: path from {:?} to {:?}: {}",
                     player_pos,
                     neighbor,
-                    if path.is_some() {
-                        format!("found (len={})", path.as_ref().unwrap().len())
+                    if let Some(p) = path.as_ref() {
+                        format!("found (len={})", p.len())
                     } else {
                         "None".to_string()
                     }
@@ -539,21 +539,6 @@ impl CooperativeDoorPassageStrategy {
                         "CoopPressurePlateDoorStrategy: P2 can reach plate: {}, door: {}",
                         p1_reach.can_reach_plate, p1_reach.can_reach_door
                     );
-
-                    // CRITICAL: Both players must be able to reach BOTH the plate AND the door
-                    let both_can_reach_plate = p0_reach.can_reach_plate && p1_reach.can_reach_plate;
-                    let both_can_reach_door = p0_reach.can_reach_door && p1_reach.can_reach_door;
-
-                    // if !both_can_reach_plate || !both_can_reach_door {
-                    //     debug!(
-                    //         "CoopPressurePlateDoorStrategy: Players on different sides of door - P1 plate:{} door:{}, P2 plate:{} door:{}",
-                    //         p0_reach.can_reach_plate,
-                    //         p0_reach.can_reach_door,
-                    //         p1_reach.can_reach_plate,
-                    //         p1_reach.can_reach_door
-                    //     );
-                    //     continue;
-                    // }
 
                     // Assign roles: closer player to plate waits, other goes through door
                     let (waiter_idx, passer_idx, passer_reach) =

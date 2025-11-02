@@ -68,7 +68,7 @@ impl StrategyPlanner {
                 Box::new(key_and_door::KeyAndDoorStrategy::new()),
                 Box::new(move_unexplored_boulder::MoveUnexploredBoulderStrategy),
                 Box::new(fallback_pressure_plate::FallbackPressurePlateStrategy),
-                Box::new(hunt_enemy_with_sword::HuntEnemyWithSwordStrategy),
+                Box::new(hunt_enemy_with_sword::HuntEnemyWithSwordStrategy::new()),
                 Box::new(random_explore::RandomExploreStrategy),
             ],
             last_strategy_per_player: Vec::new(),
