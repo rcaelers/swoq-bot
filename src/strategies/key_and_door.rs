@@ -30,6 +30,7 @@ impl KeyAndDoorStrategy {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn clean_assignments(&mut self, world: &WorldState) {
         // Remove assignments for colors where the door has been opened or is no longer relevant
         self.color_assignments.retain(|color, assignment| {
@@ -61,6 +62,7 @@ impl KeyAndDoorStrategy {
         });
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn update_phases(&mut self, world: &WorldState) {
         // Update phases based on current player inventory
         for (color, assignment) in self.color_assignments.iter_mut() {
@@ -78,7 +80,10 @@ impl KeyAndDoorStrategy {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn assign_new_colors(&mut self, world: &WorldState) {
+        debug!("assign_new_colors: Starting assignment");
+
         // Get colors that need assignment
         let unassigned_colors: Vec<Color> = world
             .doors
@@ -89,11 +94,16 @@ impl KeyAndDoorStrategy {
             .copied()
             .collect();
 
+        debug!("assign_new_colors: Unassigned colors: {:?}", unassigned_colors);
+        debug!("assign_new_colors: Current assignments: {:?}", self.color_assignments);
+
         // In 2-player mode, check which door colors have reachable pressure plates
         let mut doors_with_plates = std::collections::HashSet::new();
         if world.is_two_player_mode() {
+            debug!("assign_new_colors: In 2-player mode, checking pressure plates");
             for &color in &[Color::Red, Color::Green, Color::Blue] {
                 if let Some(plates) = world.pressure_plates.get_positions(color) {
+                    debug!("assign_new_colors: {:?} has {} pressure plates", color, plates.len());
                     let can_reach_plate = world.players.iter().any(|player| {
                         plates
                             .iter()
@@ -101,7 +111,7 @@ impl KeyAndDoorStrategy {
                     });
                     if can_reach_plate {
                         doors_with_plates.insert(color);
-                        debug!("In 2-player mode: {:?} door has reachable pressure plate", color);
+                        debug!("assign_new_colors: {:?} door has reachable pressure plate", color);
                     }
                 }
             }
@@ -114,9 +124,47 @@ impl KeyAndDoorStrategy {
             .map(|a| a.player_index)
             .collect();
 
+        debug!("assign_new_colors: Already assigned players: {:?}", assigned_players);
+
         for color in unassigned_colors {
+            debug!("assign_new_colors: Processing {:?}", color);
+
+            // First check if any available player already has the key (picked up accidentally)
+            let mut player_with_key = None;
+            for (player_index, player) in world.players.iter().enumerate() {
+                if player.is_active
+                    && !assigned_players.contains(&player_index)
+                    && world.has_key(player, color)
+                {
+                    debug!(
+                        "assign_new_colors: Player {} already has {:?} key (picked up accidentally)",
+                        player_index + 1,
+                        color
+                    );
+                    player_with_key = Some(player_index);
+                    break;
+                }
+            }
+
+            if let Some(player_index) = player_with_key {
+                debug!(
+                    "assign_new_colors: ✓ Assigning {:?} to player {} (OpenDoor phase - already has key)",
+                    color,
+                    player_index + 1
+                );
+                self.color_assignments.insert(
+                    color,
+                    ColorAssignment {
+                        player_index,
+                        phase: KeyDoorPhase::OpenDoor,
+                    },
+                );
+                continue;
+            }
+
             // Check if we know where the key is
             if !world.knows_key_location(color) {
+                debug!("assign_new_colors: Don't know location of {:?} key", color);
                 continue;
             }
 
@@ -124,15 +172,35 @@ impl KeyAndDoorStrategy {
             let mut best_player: Option<(usize, i32)> = None;
 
             for (player_index, player) in world.players.iter().enumerate() {
-                if !player.is_active || assigned_players.contains(&player_index) {
+                if !player.is_active {
+                    debug!("assign_new_colors: Player {} is not active", player_index + 1);
+                    continue;
+                }
+                if assigned_players.contains(&player_index) {
+                    debug!("assign_new_colors: Player {} already assigned", player_index + 1);
                     continue;
                 }
 
                 if let Some(key_pos) = world.closest_key(player, color) {
+                    debug!(
+                        "assign_new_colors: Player {} at {:?}, closest {:?} key at {:?}",
+                        player_index + 1,
+                        player.position,
+                        color,
+                        key_pos
+                    );
+
                     // In 2-player mode with reachable pressure plate, treat matching doors as walkable
-                    let can_reach = if world.is_two_player_mode()
-                        && doors_with_plates.contains(&color)
-                    {
+                    let use_custom_walkability =
+                        world.is_two_player_mode() && doors_with_plates.contains(&color);
+
+                    debug!(
+                        "assign_new_colors: Player {}, use_custom_walkability={}",
+                        player_index + 1,
+                        use_custom_walkability
+                    );
+
+                    let can_reach = if use_custom_walkability {
                         world
                             .find_path_with_custom_walkability(
                                 player.position,
@@ -162,8 +230,22 @@ impl KeyAndDoorStrategy {
                         world.find_path(player.position, key_pos).is_some()
                     };
 
+                    debug!(
+                        "assign_new_colors: Player {} can_reach {:?} key: {}",
+                        player_index + 1,
+                        color,
+                        can_reach
+                    );
+
                     if can_reach {
                         let distance = player.position.distance(&key_pos);
+                        debug!(
+                            "assign_new_colors: Player {} distance to {:?} key: {}",
+                            player_index + 1,
+                            color,
+                            distance
+                        );
+
                         best_player = match best_player {
                             None => Some((player_index, distance)),
                             Some((_, best_dist)) if distance < best_dist => {
@@ -172,15 +254,22 @@ impl KeyAndDoorStrategy {
                             _ => best_player,
                         };
                     }
+                } else {
+                    debug!(
+                        "assign_new_colors: No {:?} key found for player {}",
+                        color,
+                        player_index + 1
+                    );
                 }
             }
 
             // Assign the color to the best player
-            if let Some((player_index, _)) = best_player {
+            if let Some((player_index, distance)) = best_player {
                 debug!(
-                    "[KeyAndDoorStrategy] Assigning {:?} to player {} (FetchKey phase)",
+                    "assign_new_colors: ✓ Assigning {:?} to player {} (FetchKey phase), distance={}",
                     color,
-                    player_index + 1
+                    player_index + 1,
+                    distance
                 );
                 self.color_assignments.insert(
                     color,
@@ -189,10 +278,15 @@ impl KeyAndDoorStrategy {
                         phase: KeyDoorPhase::FetchKey,
                     },
                 );
+            } else {
+                debug!("assign_new_colors: ✗ No suitable player found for {:?}", color);
             }
         }
+
+        debug!("assign_new_colors: Final assignments: {:?}", self.color_assignments);
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn generate_goals(&self, world: &WorldState) -> Vec<Option<Goal>> {
         let mut goals = vec![None; world.players.len()];
 
@@ -285,6 +379,11 @@ impl SelectGoal for KeyAndDoorStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip(self, world, current_goals),
+        fields(strategy = "KeyAndDoorStrategy")
+    )]
     fn try_select_coop(
         &mut self,
         world: &WorldState,

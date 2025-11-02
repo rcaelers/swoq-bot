@@ -12,11 +12,13 @@ impl SelectGoal for UsePressurePlateForDoorStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, current_goals), fields(strategy = "UsePressurePlateForDoorStrategy"))]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
+        debug!("UsePressurePlateForDoorStrategy");
         let mut goals = vec![None; world.players.len()];
 
         // Iterate over each color

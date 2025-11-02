@@ -11,11 +11,13 @@ impl SelectGoal for PickupHealthStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, current_goals), fields(strategy = "PickupHealthStrategy"))]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
+        debug!("PickupHealthStrategy");
         if world.level < 10 || world.health.is_empty() {
             return vec![None; world.players.len()];
         }

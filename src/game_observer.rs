@@ -18,7 +18,14 @@ pub trait GameObserver {
     fn on_new_level(&mut self, level: i32);
 
     /// Called when the game state is updated (every tick)
-    fn on_state_update(&mut self, state: &State, world: &WorldState);
+    fn on_state_update(
+        &mut self,
+        state: &State,
+        world: &WorldState,
+        game_count: i32,
+        successful_runs: i32,
+        failed_runs: i32,
+    );
 
     /// Called when a goal is selected
     fn on_goal_selected(&mut self, goal: &Goal, world: &WorldState);
@@ -36,5 +43,12 @@ pub trait GameObserver {
     );
 
     /// Called when the game finishes
-    fn on_game_finished(&mut self, status: GameStatus, final_tick: i32);
+    fn on_game_finished(
+        &mut self,
+        status: GameStatus,
+        final_tick: i32,
+        game_count: i32,
+        successful_runs: i32,
+        failed_runs: i32,
+    );
 }

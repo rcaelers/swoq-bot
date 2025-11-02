@@ -11,7 +11,9 @@ impl SelectGoal for HuntEnemyWithSwordStrategy {
         StrategyType::Individual
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world), fields(strategy = "HuntEnemyWithSwordStrategy"))]
     fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
+        debug!("HuntEnemyWithSwordStrategy");
         let player = &world.players[player_index];
 
         // Only hunt enemies when:

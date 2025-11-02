@@ -57,10 +57,6 @@ impl BoulderTracker {
         self.boulders.get(pos).map(|b| b.has_moved).unwrap_or(false)
     }
 
-    pub fn clear(&mut self) {
-        self.boulders.clear();
-    }
-
     pub fn len(&self) -> usize {
         self.boulders.len()
     }
@@ -91,10 +87,9 @@ impl BoulderTracker {
             if let Some(tile) = map.get(&pos) {
                 let keep_boulder = matches!(
                     tile,
-                    Tile::Boulder
-                        | Tile::PressurePlateRed
-                        | Tile::PressurePlateGreen
-                        | Tile::PressurePlateBlue
+                    Tile::Boulder // | Tile::PressurePlateRed
+                                  // | Tile::PressurePlateGreen
+                                  // | Tile::PressurePlateBlue
                 );
                 if !keep_boulder {
                     debug!("Boulder at {:?} was picked up or destroyed (tile: {:?})", pos, tile);

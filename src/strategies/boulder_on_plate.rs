@@ -30,6 +30,7 @@ impl BoulderOnPlateStrategy {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn clean_assignments(&mut self, world: &WorldState) -> Vec<usize> {
         // Track which players had assignments removed and still have boulders
         let mut players_to_drop_boulder = Vec::new();
@@ -106,6 +107,7 @@ impl BoulderOnPlateStrategy {
         players_to_drop_boulder
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn update_phases(&mut self, world: &WorldState) {
         for assignment in self.assignments.iter_mut() {
             let player = &world.players[assignment.player_index];
@@ -148,6 +150,7 @@ impl BoulderOnPlateStrategy {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn assign_new_colors(&mut self, world: &WorldState) {
         if world.level < 6 || world.boulders.is_empty() {
             return;
@@ -204,11 +207,25 @@ impl BoulderOnPlateStrategy {
                     continue;
                 }
 
-                // Find closest reachable boulder
+                // Find closest reachable boulder that's not already on a pressure plate
                 let mut closest_boulder = None;
                 let mut min_distance = i32::MAX;
 
+                // Get all boulders currently on plates
+                let boulders_on_plates = world.get_boulders_on_plates();
+                let boulders_on_plates_set: std::collections::HashSet<Position> =
+                    boulders_on_plates
+                        .values()
+                        .flat_map(|positions| positions.iter())
+                        .copied()
+                        .collect();
+
                 for boulder_pos in world.boulders.get_all_positions() {
+                    // Skip boulders that are already on pressure plates
+                    if boulders_on_plates_set.contains(&boulder_pos) {
+                        continue;
+                    }
+
                     // Check if we can reach an adjacent position to pick it up
                     let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
                         world.is_walkable(&adj, adj)
@@ -252,6 +269,7 @@ impl BoulderOnPlateStrategy {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, players_to_drop_boulder))]
     fn generate_goals(
         &self,
         world: &WorldState,
@@ -339,18 +357,55 @@ impl BoulderOnPlateStrategy {
             }
         }
 
-        // Finally, handle unassigned players carrying boulders (fallback - no pressure plates available)
+        // Finally, handle unassigned players carrying boulders
+        // Try to assign them to a plate if possible, otherwise drop the boulder
         if world.level >= 6 {
             for (player_index, player) in world.players.iter().enumerate() {
                 if goals[player_index].is_none()
                     && !assigned_players.contains(&player_index)
                     && player.inventory == crate::swoq_interface::Inventory::Boulder
                 {
-                    debug!(
-                        "Player {} carrying boulder with no assignment - will drop it (no pressure plates available)",
-                        player_index + 1
-                    );
-                    goals[player_index] = Some(Goal::DropBoulder);
+                    // Try to find a reachable pressure plate for any color
+                    let mut found_plate = false;
+
+                    for color in [Color::Red, Color::Green, Color::Blue] {
+                        // Skip if door doesn't exist or is already opened
+                        if !world.doors.has_color(color) || world.has_door_been_opened(color) {
+                            continue;
+                        }
+
+                        // Check if there are pressure plates for this color
+                        if let Some(plates) = world.pressure_plates.get_positions(color) {
+                            // Find closest reachable plate
+                            for &plate_pos in plates {
+                                if world.path_distance(player.position, plate_pos).is_some() {
+                                    debug!(
+                                        "Player {} carrying boulder with no assignment - assigning to {:?} plate at {:?}",
+                                        player_index + 1,
+                                        color,
+                                        plate_pos
+                                    );
+                                    goals[player_index] =
+                                        Some(Goal::DropBoulderOnPlate(color, plate_pos));
+                                    found_plate = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if found_plate {
+                            break;
+                        }
+                    }
+
+                    // If no reachable plate found, drop the boulder
+                    if !found_plate {
+                        debug!(
+                            "Player {} carrying boulder with no assignment - will drop it (no reachable pressure plates)",
+                            player_index + 1
+                        );
+                        goals[player_index] = Some(Goal::DropBoulder);
+                    }
                 }
             }
         }
@@ -364,6 +419,11 @@ impl SelectGoal for BoulderOnPlateStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip(self, world, current_goals),
+        fields(strategy = "BoulderOnPlateStrategy")
+    )]
     fn try_select_coop(
         &mut self,
         world: &WorldState,

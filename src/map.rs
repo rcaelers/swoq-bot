@@ -27,10 +27,6 @@ impl Map {
         self.tiles.insert(pos, tile)
     }
 
-    pub fn clear(&mut self) {
-        self.tiles.clear();
-    }
-
     pub fn retain<F>(&mut self, f: F)
     where
         F: FnMut(&Position, &mut Tile) -> bool,

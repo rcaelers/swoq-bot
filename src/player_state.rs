@@ -54,17 +54,6 @@ impl PlayerState {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.inventory = Inventory::None;
-        self.has_sword = false;
-        self.is_active = true;
-        self.current_goal = None;
-        self.previous_goal = None;
-        self.current_destination = None;
-        self.current_path = None;
-        self.unexplored_frontier.clear();
-    }
-
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn sorted_unexplored(&self) -> Vec<Position> {
         let mut frontier: Vec<Position> = self.unexplored_frontier.iter().copied().collect();

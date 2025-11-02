@@ -7,6 +7,15 @@ use crate::swoq_interface::Tile;
 use crate::types::Position;
 use crate::world_state::WorldState;
 
+/// Snapshot of game state including statistics
+#[derive(Clone)]
+pub struct GameStateSnapshot {
+    pub world: WorldState,
+    pub game_count: i32,
+    pub successful_runs: i32,
+    pub failed_runs: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct LogMessage {
     pub text: String,
@@ -46,7 +55,7 @@ const MAX_LOG_ENTRIES: usize = 40;
 
 #[derive(Resource)]
 pub struct GameStateResource {
-    pub state: Arc<Mutex<Option<WorldState>>>,
+    pub state: Arc<Mutex<Option<GameStateSnapshot>>>,
     pub last_tick: i32,
     pub camera_initialized: bool,
     pub log_background_created: bool,
@@ -99,7 +108,7 @@ struct MapTile {
 struct MapEntity;
 
 pub fn run_visualizer(
-    state: Arc<Mutex<Option<WorldState>>>,
+    shared_state: Arc<Mutex<Option<GameStateSnapshot>>>,
     ready_tx: mpsc::Sender<()>,
     log_rx: mpsc::Receiver<LogMessage>,
 ) {
@@ -131,7 +140,7 @@ pub fn run_visualizer(
         )
         .insert_resource(ClearColor(Color::srgb(0.1, 0.1, 0.15)))
         .insert_resource(GameStateResource {
-            state,
+            state: shared_state,
             last_tick: -1,
             camera_initialized: false,
             log_background_created: false,
@@ -248,22 +257,22 @@ fn update_map(
     let world_state_clone;
     {
         let state_guard = game_state.state.lock().unwrap();
-        let Some(world_state) = state_guard.as_ref() else {
+        let Some(snapshot) = state_guard.as_ref() else {
             return;
         };
 
-        current_tick = world_state.tick;
+        current_tick = snapshot.world.tick;
 
         // Check if tick has changed
         if current_tick == game_state.last_tick && !query.is_empty() {
             return; // No change, don't re-render
         }
 
-        // Clone the world state so we can release the lock
-        world_state_clone = world_state.clone();
+        // Clone the snapshot so we can release the lock
+        world_state_clone = snapshot.clone();
     } // Lock is dropped here
 
-    tracing::debug!("Rendering tick {} (level {})", current_tick, world_state_clone.level);
+    tracing::debug!("Rendering tick {} (level {})", current_tick, world_state_clone.world.level);
     game_state.last_tick = current_tick;
 
     // Clear existing tiles
@@ -340,11 +349,12 @@ fn spawn_tile_border(
 
 fn render_world_state(
     commands: &mut Commands,
-    world_state: &WorldState,
-    tile_assets: &TileAssets,
+    snapshot: &GameStateSnapshot,
+    tile_assets: &Res<TileAssets>,
     camera_query: &mut Query<&mut Transform, With<Camera2d>>,
     camera_initialized: &mut bool,
 ) {
+    let world_state = &snapshot.world;
     tracing::debug!(
         "Rendering {} tiles for level {} tick {}",
         world_state.map.len(),
@@ -390,9 +400,24 @@ fn render_world_state(
 
         let texture = get_tile_texture(tile, tile_assets);
 
+        // Check if this is an open door and make it more transparent
+        let color = match tile {
+            Tile::DoorRed if world_state.is_door_open(crate::types::Color::Red) => {
+                Color::srgba(1.0, 1.0, 1.0, 0.4) // 40% opacity for open doors
+            }
+            Tile::DoorGreen if world_state.is_door_open(crate::types::Color::Green) => {
+                Color::srgba(1.0, 1.0, 1.0, 0.4)
+            }
+            Tile::DoorBlue if world_state.is_door_open(crate::types::Color::Blue) => {
+                Color::srgba(1.0, 1.0, 1.0, 0.4)
+            }
+            _ => Color::srgba(1.0, 1.0, 1.0, 1.0), // Full opacity for all other tiles
+        };
+
         commands.spawn((
             Sprite {
                 image: texture,
+                color,
                 custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
                 ..default()
             },
@@ -565,7 +590,7 @@ fn render_world_state(
 
     let line1_left = format!(
         "Game:{:<4} Level:{:<4} Tick:{:<6}",
-        world_state.game_count, world_state.level, world_state.tick
+        snapshot.game_count, world_state.level, world_state.tick
     );
     let line1_right = format!("P1  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p1.health, p1_inv, p1_goal);
 
@@ -646,7 +671,7 @@ fn render_world_state(
     // Add loop statistics on line 3 (left aligned) - always show to maintain consistent layout
     let line3_left = format!(
         "Runs - Success:{:<4} Failed:{:<4}",
-        world_state.successful_runs, world_state.failed_runs
+        snapshot.successful_runs, snapshot.failed_runs
     );
 
     commands.spawn((

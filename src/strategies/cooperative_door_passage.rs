@@ -133,6 +133,7 @@ impl CooperativeDoorPassageStrategy {
         None
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn execute_navigating(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
         debug!("CooperativeDoorPassageStrategy: ExecuteNavigating state");
 
@@ -188,6 +189,7 @@ impl CooperativeDoorPassageStrategy {
         vec![None; 2]
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn execute_releasing(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
         debug!("CooperativeDoorPassageStrategy: ExecuteReleasing state");
 
@@ -232,6 +234,7 @@ impl CooperativeDoorPassageStrategy {
         vec![None; 2]
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world))]
     fn execute_waiting(&mut self, world: &WorldState) -> Vec<Option<Goal>> {
         debug!("CooperativeDoorPassageStrategy: ExecuteWaiting state");
 
@@ -298,6 +301,11 @@ impl CooperativeDoorPassageStrategy {
         plate_pos: Position,
         door_pos: Position,
     ) -> PlayerReachability {
+        debug!(
+            "player_can_reach_plate_and_door: player at {:?}, plate at {:?}, door at {:?}",
+            player_pos, plate_pos, door_pos
+        );
+
         let path_to_plate = world.find_path(player_pos, plate_pos);
         let can_reach_plate = path_to_plate.is_some();
         let distance_to_plate = path_to_plate
@@ -305,14 +313,52 @@ impl CooperativeDoorPassageStrategy {
             .map(|p| p.len())
             .unwrap_or(i32::MAX as usize);
 
+        debug!(
+            "player_can_reach_plate_and_door: can_reach_plate={}, distance={}",
+            can_reach_plate, distance_to_plate
+        );
+
+        // Check each neighbor of the door
+        let door_neighbors = door_pos.neighbors();
+        debug!(
+            "player_can_reach_plate_and_door: door neighbors: {:?}",
+            door_neighbors
+        );
+
         let path_to_door = door_pos.neighbors().iter().find_map(|&neighbor| {
-            if matches!(world.map.get(&neighbor), Some(crate::swoq_interface::Tile::Empty)) {
-                world.find_path(player_pos, neighbor)
+            let tile = world.map.get(&neighbor);
+            // Consider a neighbor valid if it's empty OR if it's the player's current position
+            let is_valid = matches!(tile, Some(crate::swoq_interface::Tile::Empty)) 
+                || neighbor == player_pos;
+            debug!(
+                "player_can_reach_plate_and_door: checking neighbor {:?}, tile={:?}, is_valid={}, is_player_pos={}",
+                neighbor, tile, is_valid, neighbor == player_pos
+            );
+
+            if is_valid {
+                let path = world.find_path(player_pos, neighbor);
+                debug!(
+                    "player_can_reach_plate_and_door: path from {:?} to {:?}: {}",
+                    player_pos,
+                    neighbor,
+                    if path.is_some() {
+                        format!("found (len={})", path.as_ref().unwrap().len())
+                    } else {
+                        "None".to_string()
+                    }
+                );
+                path
             } else {
                 None
             }
         });
         let can_reach_door = path_to_door.is_some();
+
+        debug!(
+            "player_can_reach_plate_and_door: can_reach_door={}, path_len={}",
+            can_reach_door,
+            path_to_door.as_ref().map(|p| p.len()).unwrap_or(0)
+        );
 
         PlayerReachability {
             can_reach_plate,
@@ -340,16 +386,14 @@ impl CooperativeDoorPassageStrategy {
         })
     }
 
-    /// Check if either player can already reach the target position
-    fn is_target_already_reachable(&self, world: &WorldState, target_pos: Position) -> bool {
+    /// Check if a specific player can already reach the target position
+    fn is_target_already_reachable(&self, world: &WorldState, player_index: usize, target_pos: Position) -> bool {
         world
-            .find_path(world.players[0].position, target_pos)
+            .find_path(world.players[player_index].position, target_pos)
             .is_some()
-            || world
-                .find_path(world.players[1].position, target_pos)
-                .is_some()
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, current_goals))]
     fn setup_phase(
         &mut self,
         world: &WorldState,
@@ -380,7 +424,9 @@ impl CooperativeDoorPassageStrategy {
         }
 
         if world.has_boulders_not_on_plates() {
-            debug!("CoopPressurePlateDoorStrategy: Boulders not on plates exist, preferring boulder solution");
+            debug!(
+                "CoopPressurePlateDoorStrategy: Boulders not on plates exist, preferring boulder solution"
+            );
             return vec![None; world.players.len()];
         }
 
@@ -498,16 +544,16 @@ impl CooperativeDoorPassageStrategy {
                     let both_can_reach_plate = p0_reach.can_reach_plate && p1_reach.can_reach_plate;
                     let both_can_reach_door = p0_reach.can_reach_door && p1_reach.can_reach_door;
 
-                    if !both_can_reach_plate || !both_can_reach_door {
-                        debug!(
-                            "CoopPressurePlateDoorStrategy: Players on different sides of door - P1 plate:{} door:{}, P2 plate:{} door:{}",
-                            p0_reach.can_reach_plate,
-                            p0_reach.can_reach_door,
-                            p1_reach.can_reach_plate,
-                            p1_reach.can_reach_door
-                        );
-                        continue;
-                    }
+                    // if !both_can_reach_plate || !both_can_reach_door {
+                    //     debug!(
+                    //         "CoopPressurePlateDoorStrategy: Players on different sides of door - P1 plate:{} door:{}, P2 plate:{} door:{}",
+                    //         p0_reach.can_reach_plate,
+                    //         p0_reach.can_reach_door,
+                    //         p1_reach.can_reach_plate,
+                    //         p1_reach.can_reach_door
+                    //     );
+                    //     continue;
+                    // }
 
                     // Assign roles: closer player to plate waits, other goes through door
                     let (waiter_idx, passer_idx, passer_reach) =
@@ -527,10 +573,10 @@ impl CooperativeDoorPassageStrategy {
                             door_pos, last, target_pos
                         );
 
-                        if self.is_target_already_reachable(world, target_pos) {
+                        if self.is_target_already_reachable(world, passer_idx, target_pos) {
                             debug!(
-                                "CoopPressurePlateDoorStrategy: Target {:?} is already reachable, no cooperation needed",
-                                target_pos
+                                "CoopPressurePlateDoorStrategy: Target {:?} is already reachable by P{}, no cooperation needed",
+                                target_pos, passer_idx + 1
                             );
                             continue;
                         }
@@ -590,11 +636,17 @@ impl SelectGoal for CooperativeDoorPassageStrategy {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip(self, world, current_goals),
+        fields(strategy = "CooperativeDoorPassageStrategy")
+    )]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
+        debug!("CooperativeDoorPassageStrategy");
         match self.state {
             CooperativeDoorPassageState::Setup => self.setup_phase(world, current_goals),
             CooperativeDoorPassageState::ExecuteNavigating

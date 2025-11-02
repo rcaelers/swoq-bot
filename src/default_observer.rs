@@ -7,9 +7,7 @@ use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 use crate::world_state::WorldState;
 
 #[derive(Default)]
-pub struct DefaultObserver {
-    game_count: i32,
-}
+pub struct DefaultObserver {}
 
 
 impl GameObserver for DefaultObserver {
@@ -21,10 +19,9 @@ impl GameObserver for DefaultObserver {
         map_height: i32,
         visibility_range: i32,
     ) {
-        self.game_count += 1;
         info!(
-            "Game #{} started: id={}, seed={:?}, size={}x{}, visibility={}",
-            self.game_count, game_id, seed, map_width, map_height, visibility_range
+            "Game started: id={}, seed={:?}, size={}x{}, visibility={}",
+            game_id, seed, map_width, map_height, visibility_range
         );
     }
 
@@ -32,11 +29,18 @@ impl GameObserver for DefaultObserver {
         info!("Level changed to {}", level);
     }
 
-    fn on_state_update(&mut self, state: &State, world: &WorldState) {
+    fn on_state_update(
+        &mut self,
+        state: &State,
+        world: &WorldState,
+        game_count: i32,
+        _successful_runs: i32,
+        _failed_runs: i32,
+    ) {
         let p1 = &world.players[0];
         tracing::debug!(
             "Game #{}, Level {}, Tick {}: P1 Health={}, Position=({}, {})",
-            self.game_count,
+            game_count,
             world.level,
             state.tick,
             p1.health,
@@ -108,12 +112,21 @@ impl GameObserver for DefaultObserver {
         tracing::debug!("Action result: {:?}/{:?} -> {:?}", action, action2, result);
     }
 
-    fn on_game_finished(&mut self, status: GameStatus, final_tick: i32) {
+    fn on_game_finished(
+        &mut self,
+        status: GameStatus,
+        final_tick: i32,
+        game_count: i32,
+        successful_runs: i32,
+        failed_runs: i32,
+    ) {
         tracing::info!(
-            "Game #{} finished: status={:?}, tick={}",
-            self.game_count,
+            "Game #{} finished: status={:?}, tick={}, success={}, failed={}",
+            game_count,
             status,
-            final_tick
+            final_tick,
+            successful_runs,
+            failed_runs
         );
     }
 }

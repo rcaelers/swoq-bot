@@ -12,7 +12,9 @@ impl SelectGoal for RandomExploreStrategy {
         StrategyType::Individual
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world), fields(strategy = "RandomExploreStrategy"))]
     fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
+        debug!("RandomExploreStrategy");
         let player = &world.players[player_index];
 
         // Only use random exploration when:

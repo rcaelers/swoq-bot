@@ -27,9 +27,8 @@ use composite_observer::CompositeObserver;
 use default_observer::DefaultObserver;
 use game::Game;
 use swoq::GameConnection;
-use visualizer::run_visualizer;
+use visualizer::{run_visualizer, GameStateSnapshot};
 use visualizing_observer::VisualizingObserver;
-use world_state::WorldState;
 
 fn get_env_var_i32(key: &str) -> Option<i32> {
     env::var(key).ok().and_then(|val| val.parse::<i32>().ok())
@@ -103,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Visualizer enabled: {}", enable_viz);
 
     if enable_viz {
-        let shared_state: Arc<Mutex<Option<WorldState>>> = Arc::new(Mutex::new(None));
+        let shared_state: Arc<Mutex<Option<GameStateSnapshot>>> = Arc::new(Mutex::new(None));
         let game_state = Arc::clone(&shared_state);
 
         let (log_tx, log_rx) = mpsc::channel();

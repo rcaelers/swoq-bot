@@ -33,11 +33,6 @@ pub struct WorldState {
     pub tick: i32,
     pub visibility_range: i32,
 
-    // Loop mode statistics
-    pub successful_runs: i32,
-    pub failed_runs: i32,
-    pub game_count: i32,
-
     // Map
     pub map: Map,
 
@@ -66,9 +61,6 @@ impl WorldState {
             level: 0,
             tick: 0,
             visibility_range,
-            successful_runs: 0,
-            failed_runs: 0,
-            game_count: 0,
             map: Map::new(map_width, map_height),
             players: vec![PlayerState::new(Position::new(0, 0))],
             exit_position: None,
@@ -142,31 +134,6 @@ impl WorldState {
             frontier.retain(|pos| matches!(self.map.get(pos), Some(Tile::Unknown) | None));
 
             self.players[i].unexplored_frontier = frontier;
-        }
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub fn reset_for_new_level(&mut self) {
-        self.map.clear();
-        self.exit_position = None;
-        self.keys.clear();
-        self.doors.clear();
-        self.enemies.clear();
-        self.boulders.clear();
-        self.swords.clear();
-        self.health.clear();
-        self.pressure_plates.clear();
-        self.boss_position = None;
-        self.treasure_position = None;
-        self.potential_enemy_locations.clear();
-
-        // Note: successful_runs and failed_runs are NOT cleared
-        // to preserve statistics across levels and game restarts
-
-        // Clear all players and reset to single player
-        self.players.truncate(1);
-        if let Some(p1) = self.players.get_mut(0) {
-            p1.clear();
         }
     }
 
@@ -589,11 +556,6 @@ impl WorldState {
         self.swords.closest_to(player.position)
     }
 
-    #[allow(dead_code)]
-    pub fn closest_door_of_color(&self, player: &PlayerState, color: Color) -> Option<Position> {
-        self.doors.closest_to(color, player.position)
-    }
-
     pub fn knows_key_location(&self, color: Color) -> bool {
         self.keys.has_color(color)
     }
@@ -803,7 +765,7 @@ impl WorldState {
     }
 
     /// Check if a door is open (has a player or boulder on its pressure plate)
-    fn is_door_open(&self, color: Color) -> bool {
+    pub fn is_door_open(&self, color: Color) -> bool {
         if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
             // Check if any player is on a matching plate
             for player in &self.players {

@@ -38,6 +38,11 @@ impl AStar {
     where
         F: Fn(&Position, Position, i32) -> bool,
     {
+        // If start equals goal, return path with just the goal position
+        if start == goal {
+            return Some(vec![goal]);
+        }
+
         let mut open_set = BinaryHeap::new();
         let mut came_from: HashMap<Position, Position> = HashMap::new();
         let mut g_score: HashMap<Position, i32> = HashMap::new();

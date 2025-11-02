@@ -33,9 +33,16 @@ impl GameObserver for CompositeObserver {
         }
     }
 
-    fn on_state_update(&mut self, state: &State, world: &WorldState) {
+    fn on_state_update(
+        &mut self,
+        state: &State,
+        world: &WorldState,
+        game_count: i32,
+        successful_runs: i32,
+        failed_runs: i32,
+    ) {
         for observer in &mut self.observers {
-            observer.on_state_update(state, world);
+            observer.on_state_update(state, world, game_count, successful_runs, failed_runs);
         }
     }
 
@@ -63,9 +70,16 @@ impl GameObserver for CompositeObserver {
         }
     }
 
-    fn on_game_finished(&mut self, status: GameStatus, final_tick: i32) {
+    fn on_game_finished(
+        &mut self,
+        status: GameStatus,
+        final_tick: i32,
+        game_count: i32,
+        successful_runs: i32,
+        failed_runs: i32,
+    ) {
         for observer in &mut self.observers {
-            observer.on_game_finished(status, final_tick);
+            observer.on_game_finished(status, final_tick, game_count, successful_runs, failed_runs);
         }
     }
 }

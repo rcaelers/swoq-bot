@@ -11,11 +11,13 @@ impl SelectGoal for MoveUnexploredBoulderStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, current_goals), fields(strategy = "MoveUnexploredBoulderStrategy"))]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
+        debug!("MoveUnexploredBoulderStrategy");
         let mut goals = vec![None; world.players.len()];
 
         if world.level < 6 || world.boulders.is_empty() {

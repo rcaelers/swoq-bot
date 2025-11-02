@@ -11,7 +11,9 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
         StrategyType::Individual
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world), fields(strategy = "AttackOrFleeEnemyStrategy"))]
     fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
+        debug!("AttackOrFleeEnemyStrategy");
         if world.level < 8 {
             return None;
         }

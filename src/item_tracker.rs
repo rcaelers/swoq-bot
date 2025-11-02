@@ -75,10 +75,6 @@ impl ItemTracker {
     pub fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }
-
-    pub fn clear(&mut self) {
-        self.positions.clear();
-    }
 }
 
 impl Default for ItemTracker {
@@ -112,7 +108,12 @@ impl ColoredItemTracker {
     ) where
         F: Fn(&Tile) -> bool,
     {
-        self.update_with_positions(seen_items, map, |tile, _pos| validator(tile), all_visibility_bounds);
+        self.update_with_positions(
+            seen_items,
+            map,
+            |tile, _pos| validator(tile),
+            all_visibility_bounds,
+        );
     }
 
     /// Update positions with a validator that can also check the position
@@ -188,10 +189,6 @@ impl ColoredItemTracker {
 
     pub fn colors(&self) -> impl Iterator<Item = &Color> {
         self.positions.keys()
-    }
-
-    pub fn clear(&mut self) {
-        self.positions.clear();
     }
 }
 

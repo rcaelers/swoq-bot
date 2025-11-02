@@ -12,11 +12,13 @@ impl SelectGoal for FallbackPressurePlateStrategy {
         StrategyType::Coop
     }
 
+    #[tracing::instrument(level = "debug", skip(self, world, current_goals), fields(strategy = "FallbackPressurePlateStrategy"))]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
         current_goals: &[Option<Goal>],
     ) -> Vec<Option<Goal>> {
+        debug!("FallbackPressurePlateStrategy");
         let mut goals = vec![None; world.players.len()];
 
         // Iterate over each color and assign one player per color

@@ -13,6 +13,11 @@ pub struct Game {
     world: WorldState,
     current_level: i32,
     planner: StrategyPlanner,
+    
+    // Game statistics (persistent across levels)
+    pub successful_runs: i32,
+    pub failed_runs: i32,
+    pub game_count: i32,
 }
 
 impl Game {
@@ -23,6 +28,9 @@ impl Game {
             world: WorldState::new(0, 0, 0),
             current_level: 0,
             planner: StrategyPlanner::new(),
+            successful_runs: 0,
+            failed_runs: 0,
+            game_count: 0,
         }
     }
 
@@ -33,6 +41,8 @@ impl Game {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut game = self.connection.start(level, seed).await?;
 
+        self.game_count += 1;
+        
         self.observer.on_game_start(
             &game.game_id,
             game.seed,
@@ -71,7 +81,20 @@ impl Game {
 
         let status =
             GameStatus::try_from(game.state.status).unwrap_or(GameStatus::FinishedCanceled);
-        self.observer.on_game_finished(status, game.state.tick);
+        
+        // Update statistics
+        match status {
+            GameStatus::FinishedSuccess => self.successful_runs += 1,
+            _ => self.failed_runs += 1,
+        }
+        
+        self.observer.on_game_finished(
+            status,
+            game.state.tick,
+            self.game_count,
+            self.successful_runs,
+            self.failed_runs,
+        );
 
         Ok(())
     }
@@ -79,7 +102,8 @@ impl Game {
     fn check_level(&mut self, game: &crate::swoq::Game) {
         if game.state.level != self.current_level {
             self.observer.on_new_level(game.state.level);
-            self.world.reset_for_new_level();
+            // Create a new WorldState for the new level
+            self.world = WorldState::new(game.map_width, game.map_height, game.visibility_range);
             self.planner = StrategyPlanner::new();
             self.current_level = game.state.level;
         }
@@ -94,7 +118,13 @@ impl Game {
         tracing::debug!("└────────────────────────────────────────────────────────────┘");
 
         self.world.update(state);
-        self.observer.on_state_update(state, &self.world);
+        self.observer.on_state_update(
+            state,
+            &self.world,
+            self.game_count,
+            self.successful_runs,
+            self.failed_runs,
+        );
     }
 
     fn plan(&mut self) -> Vec<Goal> {
