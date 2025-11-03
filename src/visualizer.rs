@@ -579,20 +579,11 @@ fn render_world_state(
         .map(format_goal)
         .unwrap_or_else(|| "None".to_string());
 
-    let p1_inv = if p1.has_sword {
-        match p1.inventory {
-            crate::swoq_interface::Inventory::None => "Sword".to_string(),
-            inv => format!("Sword+{:?}", inv),
-        }
-    } else {
-        format!("{:?}", p1.inventory)
-    };
-
     let line1_left = format!(
         "Game:{:<4} Level:{:<4} Tick:{:<6}",
         snapshot.game_count, world_state.level, world_state.tick
     );
-    let line1_right = format!("P1  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p1.health, p1_inv, p1_goal);
+    let line1_right = format!("P1  HP:{:<3}", p1.health);
 
     // Level and Tick - left aligned
     commands.spawn((
@@ -624,13 +615,147 @@ fn render_world_state(
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(10.0),
-            right: Val::Px(LOG_PANE_WIDTH + 10.0),
+            right: Val::Px(LOG_PANE_WIDTH + 320.0),
             ..default()
         },
         MapEntity,
     ));
 
-    // Add Player 2 stats if available (right aligned, always on line 2)
+    // Player 1 inventory icons - positioned after HP
+    let icon_start_x = WINDOW_WIDTH - LOG_PANE_WIDTH - 310.0;
+    let icon_y = 10.0;
+    let icon_size = 20.0;
+    let icon_spacing = 24.0;
+    let mut icon_offset = 0.0;
+
+    if p1.has_sword {
+        commands.spawn((
+            ImageNode {
+                image: tile_assets.sword.clone(),
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(icon_y),
+                left: Val::Px(icon_start_x + icon_offset),
+                width: Val::Px(icon_size),
+                height: Val::Px(icon_size),
+                ..default()
+            },
+            MapEntity,
+        ));
+        icon_offset += icon_spacing;
+    }
+
+    match p1.inventory {
+        crate::swoq_interface::Inventory::KeyRed => {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.key_red.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y),
+                    left: Val::Px(icon_start_x + icon_offset),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+        }
+        crate::swoq_interface::Inventory::KeyGreen => {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.key_green.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y),
+                    left: Val::Px(icon_start_x + icon_offset),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+        }
+        crate::swoq_interface::Inventory::KeyBlue => {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.key_blue.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y),
+                    left: Val::Px(icon_start_x + icon_offset),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+        }
+        crate::swoq_interface::Inventory::Boulder => {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.boulder.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y),
+                    left: Val::Px(icon_start_x + icon_offset),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+        }
+        crate::swoq_interface::Inventory::Treasure => {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.treasure.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y),
+                    left: Val::Px(icon_start_x + icon_offset),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+        }
+        crate::swoq_interface::Inventory::None => {}
+    }
+
+    // Player 1 goal text - positioned after inventory icons
+    let p1_goal_text = format!("Goal:{:<20}", p1_goal);
+    commands.spawn((
+        Text::new(p1_goal_text),
+        TextFont {
+            font_size: 18.0,
+            font: default(),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            left: Val::Px(icon_start_x + icon_spacing * 2.5),
+            ..default()
+        },
+        MapEntity,
+    ));
+
+    // Add Player 2 stats if available (right aligned, line 2)
     if world_state.players.len() > 1 {
         let p2 = &world_state.players[1];
         let p2_goal = p2
@@ -639,16 +764,7 @@ fn render_world_state(
             .map(format_goal)
             .unwrap_or_else(|| "None".to_string());
 
-        let p2_inv = if p2.has_sword {
-            match p2.inventory {
-                crate::swoq_interface::Inventory::None => "Sword".to_string(),
-                inv => format!("Sword+{:?}", inv),
-            }
-        } else {
-            format!("{:?}", p2.inventory)
-        };
-
-        let p2_text = format!("P2  HP:{:<3}  Inv:{:<16}  Goal:{:<20}", p2.health, p2_inv, p2_goal);
+        let p2_text = format!("P2  HP:{:<3}", p2.health);
 
         commands.spawn((
             Text::new(p2_text),
@@ -661,7 +777,138 @@ fn render_world_state(
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(32.0), // Line 2
-                right: Val::Px(LOG_PANE_WIDTH + 10.0),
+                right: Val::Px(LOG_PANE_WIDTH + 320.0),
+                ..default()
+            },
+            MapEntity,
+        ));
+
+        // Player 2 inventory icons
+        let icon_y2 = 32.0;
+        let mut icon_offset2 = 0.0;
+
+        if p2.has_sword {
+            commands.spawn((
+                ImageNode {
+                    image: tile_assets.sword.clone(),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(icon_y2),
+                    left: Val::Px(icon_start_x + icon_offset2),
+                    width: Val::Px(icon_size),
+                    height: Val::Px(icon_size),
+                    ..default()
+                },
+                MapEntity,
+            ));
+            icon_offset2 += icon_spacing;
+        }
+
+        match p2.inventory {
+            crate::swoq_interface::Inventory::KeyRed => {
+                commands.spawn((
+                    ImageNode {
+                        image: tile_assets.key_red.clone(),
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(icon_y2),
+                        left: Val::Px(icon_start_x + icon_offset2),
+                        width: Val::Px(icon_size),
+                        height: Val::Px(icon_size),
+                        ..default()
+                    },
+                    MapEntity,
+                ));
+            }
+            crate::swoq_interface::Inventory::KeyGreen => {
+                commands.spawn((
+                    ImageNode {
+                        image: tile_assets.key_green.clone(),
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(icon_y2),
+                        left: Val::Px(icon_start_x + icon_offset2),
+                        width: Val::Px(icon_size),
+                        height: Val::Px(icon_size),
+                        ..default()
+                    },
+                    MapEntity,
+                ));
+            }
+            crate::swoq_interface::Inventory::KeyBlue => {
+                commands.spawn((
+                    ImageNode {
+                        image: tile_assets.key_blue.clone(),
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(icon_y2),
+                        left: Val::Px(icon_start_x + icon_offset2),
+                        width: Val::Px(icon_size),
+                        height: Val::Px(icon_size),
+                        ..default()
+                    },
+                    MapEntity,
+                ));
+            }
+            crate::swoq_interface::Inventory::Boulder => {
+                commands.spawn((
+                    ImageNode {
+                        image: tile_assets.boulder.clone(),
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(icon_y2),
+                        left: Val::Px(icon_start_x + icon_offset2),
+                        width: Val::Px(icon_size),
+                        height: Val::Px(icon_size),
+                        ..default()
+                    },
+                    MapEntity,
+                ));
+            }
+            crate::swoq_interface::Inventory::Treasure => {
+                commands.spawn((
+                    ImageNode {
+                        image: tile_assets.treasure.clone(),
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(icon_y2),
+                        left: Val::Px(icon_start_x + icon_offset2),
+                        width: Val::Px(icon_size),
+                        height: Val::Px(icon_size),
+                        ..default()
+                    },
+                    MapEntity,
+                ));
+            }
+            crate::swoq_interface::Inventory::None => {}
+        }
+
+        // Player 2 goal text
+        let p2_goal_text = format!("Goal:{:<20}", p2_goal);
+        commands.spawn((
+            Text::new(p2_goal_text),
+            TextFont {
+                font_size: 18.0,
+                font: default(),
+                ..default()
+            },
+            TextColor(Color::srgb(0.4, 0.8, 1.0)), // Cyan color for player 2
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(32.0),
+                left: Val::Px(icon_start_x + icon_spacing * 2.5),
                 ..default()
             },
             MapEntity,
