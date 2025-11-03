@@ -42,7 +42,7 @@ impl Game {
         let mut game = self.connection.start(level, seed).await?;
 
         self.game_count += 1;
-        
+
         self.observer.on_game_start(
             &game.game_id,
             game.seed,
@@ -77,17 +77,23 @@ impl Game {
                     action_result
                 );
             }
+
+            if action_result != swoq_interface::ActResult::Ok {
+                tracing::debug!("\n❌ Action failed with result: {:?}", action_result);
+                tracing::debug!("🛑 Stopping game due to action error");
+                break;
+            }
         }
 
         let status =
             GameStatus::try_from(game.state.status).unwrap_or(GameStatus::FinishedCanceled);
-        
+
         // Update statistics
         match status {
             GameStatus::FinishedSuccess => self.successful_runs += 1,
             _ => self.failed_runs += 1,
         }
-        
+
         self.observer.on_game_finished(
             status,
             game.state.tick,
@@ -265,13 +271,9 @@ impl Game {
         };
 
         let action_result = game.act(action1, action2).await?;
+
         self.observer
             .on_action_result(action1, action2, action_result, &self.world);
-        if action_result != swoq_interface::ActResult::Ok {
-            tracing::debug!("\n❌ Action failed with result: {:?}", action_result);
-            tracing::debug!("🛑 Stopping game due to action error");
-            return Err(format!("Action failed: {:?}", action_result).into());
-        }
         Ok(action_result)
     }
 }
