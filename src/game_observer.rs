@@ -51,4 +51,7 @@ pub trait GameObserver {
         successful_runs: i32,
         failed_runs: i32,
     );
+
+    /// Called when oscillation is detected
+    fn on_oscillation_detected(&mut self, message: &str);
 }

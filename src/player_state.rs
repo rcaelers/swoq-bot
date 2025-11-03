@@ -36,6 +36,8 @@ pub struct PlayerState {
     pub current_destination: Option<Position>,
     pub current_path: Option<Vec<Position>>,
     pub unexplored_frontier: HashSet<Position>,
+    // Oscillation recovery - force random exploration for N ticks
+    pub force_random_explore_ticks: i32,
 }
 
 impl PlayerState {
@@ -51,6 +53,7 @@ impl PlayerState {
             current_destination: None,
             current_path: None,
             unexplored_frontier: HashSet::new(),
+            force_random_explore_ticks: 0,
         }
     }
 

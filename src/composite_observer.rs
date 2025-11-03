@@ -82,4 +82,10 @@ impl GameObserver for CompositeObserver {
             observer.on_game_finished(status, final_tick, game_count, successful_runs, failed_runs);
         }
     }
+
+    fn on_oscillation_detected(&mut self, message: &str) {
+        for observer in &mut self.observers {
+            observer.on_oscillation_detected(message);
+        }
+    }
 }

@@ -129,4 +129,8 @@ impl GameObserver for DefaultObserver {
             failed_runs
         );
     }
+
+    fn on_oscillation_detected(&mut self, message: &str) {
+        tracing::warn!("{}", message);
+    }
 }

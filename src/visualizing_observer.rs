@@ -177,4 +177,8 @@ impl GameObserver for VisualizingObserver {
             self.send_log(message, LogColor::Red);
         }
     }
+
+    fn on_oscillation_detected(&mut self, message: &str) {
+        self.send_log(message.to_string(), LogColor::Yellow);
+    }
 }

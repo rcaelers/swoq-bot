@@ -133,6 +133,14 @@ impl Game {
         tracing::debug!("└────────────────────────────────────────────────────────────┘");
 
         let num_players = self.world.players.len();
+
+        // Decrement forced random exploration counter
+        for player_index in 0..num_players {
+            if self.world.players[player_index].force_random_explore_ticks > 0 {
+                self.world.players[player_index].force_random_explore_ticks -= 1;
+            }
+        }
+
         for player_index in 0..num_players {
             if let Some(dest) = self.world.players[player_index].current_destination
                 && self.world.players[player_index].position == dest
@@ -176,6 +184,36 @@ impl Game {
         tracing::debug!("\n┌────────────────────────────────────────────────────────────┐");
         tracing::debug!("│ ⚡ EXECUTING ACTIONS - Planning actions for goals           ");
         tracing::debug!("└────────────────────────────────────────────────────────────┘");
+
+        // Check for goal swapping between players (only if 2 players)
+        if num_players == 2 {
+            let p1_goal = goals.get(0).cloned();
+            let p2_goal = goals.get(1).cloned();
+
+            self.world
+                .record_goal_pair(p1_goal.clone(), p2_goal.clone());
+
+            let (is_swapping, history) = self.world.is_goal_swapping();
+            if is_swapping {
+                // Log to UI
+                let log_message = format!(
+                    "⚠️  Players SWAPPING goals!\n   t-3: P1={:?}, P2={:?}\n   t-2: P1={:?}, P2={:?}\n   t-1: P1={:?}, P2={:?}\n   t:   P1={:?}, P2={:?}",
+                    history[0].0,
+                    history[0].1,
+                    history[1].0,
+                    history[1].1,
+                    history[2].0,
+                    history[2].1,
+                    history[3].0,
+                    history[3].1
+                );
+                tracing::warn!("{}", log_message);
+                self.observer.on_oscillation_detected(&log_message);
+
+                // Force player 1 to random exploration for 10 ticks
+                self.world.players[0].force_random_explore_ticks = 10;
+            }
+        }
 
         let mut results = Vec::new();
         for (player_index, goal) in goals.into_iter().enumerate() {

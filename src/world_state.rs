@@ -27,6 +27,9 @@ struct SeenItems {
     enemies: Vec<Position>,
 }
 
+type GoalPair = (Option<crate::goals::Goal>, Option<crate::goals::Goal>);
+type GoalPairHistory = [GoalPair; 4];
+
 #[derive(Clone)]
 pub struct WorldState {
     pub level: i32,
@@ -49,12 +52,13 @@ pub struct WorldState {
     pub pressure_plates: ColoredItemTracker,
     pub exit_position: Option<Position>,
     pub boss_position: Option<Position>,
-    pub treasure_position: Option<Position>,
-
-    // Potential enemy locations (positions where enemies became Unknown)
     pub potential_enemy_locations: HashSet<Position>,
+    
+    // Goal swap detection between players - track last 4 goal pairs (t, t-1, t-2, t-3)
+    goal_pair_history: GoalPairHistory,
+    goal_pair_index: usize,
 }
-
+    
 impl WorldState {
     pub fn new(map_width: i32, map_height: i32, visibility_range: i32) -> Self {
         Self {
@@ -74,6 +78,8 @@ impl WorldState {
             boss_position: None,
             treasure_position: None,
             potential_enemy_locations: HashSet::new(),
+            goal_pair_history: [(None, None), (None, None), (None, None), (None, None)],
+            goal_pair_index: 0,
         }
     }
 
@@ -982,4 +988,55 @@ impl WorldState {
         );
         frontier
     }
+    
+    /// Record the current goals for both players (if 2 players exist)
+    pub fn record_goal_pair(&mut self, p1_goal: Option<crate::goals::Goal>, p2_goal: Option<crate::goals::Goal>) {
+        self.goal_pair_history[self.goal_pair_index] = (p1_goal, p2_goal);
+        self.goal_pair_index = (self.goal_pair_index + 1) % 4;
+    }
+    
+    /// Detect if players are swapping goals
+    /// Returns true if the last 4 goal pairs show a swap pattern:
+    /// - Goals at t and t-2 are swapped versions of each other
+    /// 
+    /// Also returns the 4 goal pairs in chronological order for logging
+    pub fn is_goal_swapping(&self) -> (bool, GoalPairHistory) {
+        // Get goal pairs in chronological order (oldest to newest)
+        let latest_idx = if self.goal_pair_index == 0 {
+            3
+        } else {
+            self.goal_pair_index - 1
+        };
+        
+        let t = latest_idx;
+        let t_minus_1 = if t == 0 { 3 } else { t - 1 };
+        let t_minus_2 = if t_minus_1 == 0 { 3 } else { t_minus_1 - 1 };
+        let t_minus_3 = if t_minus_2 == 0 { 3 } else { t_minus_2 - 1 };
+        
+        let goals_t = &self.goal_pair_history[t];
+        let goals_t1 = &self.goal_pair_history[t_minus_1];
+        let goals_t2 = &self.goal_pair_history[t_minus_2];
+        let goals_t3 = &self.goal_pair_history[t_minus_3];
+        
+        // Check for swap pattern: goals at t match goals at t-2 swapped, 
+        // and goals at t-1 match goals at t-3 swapped
+        let is_swapping = 
+            // t and t-2 are swaps
+            goals_t.0 == goals_t2.1 && goals_t.1 == goals_t2.0 &&
+            // t-1 and t-3 are swaps
+            goals_t1.0 == goals_t3.1 && goals_t1.1 == goals_t3.0 &&
+            // Make sure we're not comparing None == None
+            goals_t.0.is_some() && goals_t.1.is_some() &&
+            // Make sure players don't have the same goal (no swapping if both have same goal)
+            goals_t.0 != goals_t.1;
+        
+        // Return in chronological order (t-3, t-2, t-1, t)
+        (is_swapping, [
+            goals_t3.clone(),
+            goals_t2.clone(),
+            goals_t1.clone(),
+            goals_t.clone(),
+        ])
+    }
 }
+

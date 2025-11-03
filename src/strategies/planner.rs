@@ -75,6 +75,53 @@ impl StrategyPlanner {
         }
     }
 
+    /// Find a random reachable position for forced random exploration
+    fn find_random_reachable_position(
+        world: &WorldState,
+        player_index: usize,
+    ) -> Option<crate::types::Position> {
+        let player = &world.players[player_index];
+
+        // Collect all empty positions that we've seen
+        let empty_positions: Vec<crate::types::Position> = world
+            .map
+            .iter()
+            .filter_map(|(pos, tile)| {
+                if matches!(tile, crate::swoq_interface::Tile::Empty)
+                    && player.position.distance(pos) > 5
+                {
+                    Some(*pos)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if empty_positions.is_empty() {
+            return None;
+        }
+
+        // Try random positions until we find a reachable one (max 10 attempts)
+        let mut seed = world.tick as usize;
+
+        for _ in 0..10 {
+            let index = seed % empty_positions.len();
+            let target = empty_positions[index];
+
+            // Check if reachable
+            if world.find_path(player.position, target).is_some() {
+                debug!("Forced RandomExplore: Selected reachable position {:?}", target);
+                return Some(target);
+            }
+
+            // Try next position
+            seed = seed.wrapping_add(1);
+        }
+
+        debug!("Forced RandomExplore: No reachable position found after 10 attempts");
+        None
+    }
+
     #[tracing::instrument(level = "debug", skip(self, world))]
     pub fn select_goal(&mut self, world: &WorldState) -> Vec<Goal> {
         let num_players = world.players.len();
@@ -84,6 +131,21 @@ impl StrategyPlanner {
         // Initialize last_strategy_per_player if needed
         if self.last_strategy_per_player.len() != num_players {
             self.last_strategy_per_player = vec![None; num_players];
+        }
+
+        // Check for players forced into random exploration due to oscillation
+        for player_index in 0..num_players {
+            if world.players[player_index].force_random_explore_ticks > 0 {
+                debug!(
+                    "Player {} forced to RandomExplore (remaining ticks: {})",
+                    player_index + 1,
+                    world.players[player_index].force_random_explore_ticks
+                );
+
+                if let Some(target) = Self::find_random_reachable_position(world, player_index) {
+                    selected_goals[player_index] = Some(Goal::RandomExplore(target));
+                }
+            }
         }
 
         // First, try to prioritize strategies that were used last tick
@@ -116,7 +178,7 @@ impl StrategyPlanner {
             );
         }
 
-        // Process remaining strategies in order
+        // Process remaining strategies in order (skip players with forced random exploration)
         for (strategy_idx, strategy) in self.strategies.iter_mut().enumerate() {
             Self::process_strategy(
                 strategy,
