@@ -193,7 +193,7 @@ impl Game {
 
         // Check for goal swapping between players (only if 2 players)
         if num_players == 2 {
-            let p1_goal = goals.get(0).cloned();
+            let p1_goal = goals.first().cloned();
             let p2_goal = goals.get(1).cloned();
 
             self.world
