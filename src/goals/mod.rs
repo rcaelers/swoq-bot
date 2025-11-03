@@ -111,55 +111,6 @@ pub fn validate_destination(world: &mut WorldState, player_index: usize) {
     }
 }
 
-/// Step 3: Trim and validate path - check if old path is still walkable and ends at destination
-pub fn validate_and_trim_path(world: &mut WorldState, player_index: usize) {
-    let player_pos = world.players[player_index].position;
-
-    if let Some(dest) = world.players[player_index].current_destination
-        && let Some(ref old_path) = world.players[player_index].current_path
-    {
-        // Skip positions we've already passed - find our current position in the path
-        let remaining_path: Vec<_> = old_path
-            .iter()
-            .skip_while(|&&pos| pos != player_pos)
-            .copied()
-            .collect();
-
-        let path_valid = !remaining_path.is_empty()
-            && remaining_path.last() == Some(&dest)
-            && remaining_path
-                .iter()
-                .all(|&pos| world.is_walkable(&pos, dest));
-
-        if !path_valid {
-            debug!("Old path is no longer valid, clearing but keeping destination");
-            world.players[player_index].current_path = None;
-        } else if remaining_path.len() < old_path.len() {
-            // Update path to trimmed version
-            world.players[player_index].current_path = Some(remaining_path);
-        }
-    }
-}
-
-/// Helper for ExploreGoal: Try to update path to existing destination
-#[allow(dead_code)]
-pub fn try_update_path_to_destination(world: &mut WorldState, player_index: usize) -> bool {
-    let player_pos = world.players[player_index].position;
-
-    if let Some(dest) = world.players[player_index].current_destination
-        && let Some(new_path) = world.find_path_for_player(player_index, player_pos, dest)
-    {
-        if should_update_path(&new_path, world.players[player_index].current_path.as_ref()) {
-            debug!("Updating path to destination {:?}, new path length={}", dest, new_path.len());
-            world.players[player_index].current_path = Some(new_path);
-        } else {
-            debug!("Keeping existing path to destination {:?}", dest);
-        }
-        return true;
-    }
-    false
-}
-
 pub fn try_keep_destination(world: &mut WorldState, player_index: usize) -> bool {
     let player_pos = world.players[player_index].position;
     if let Some(dest) = world.players[player_index].current_destination {

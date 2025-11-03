@@ -54,7 +54,7 @@ pub struct WorldState {
     pub boss_position: Option<Position>,
     pub potential_enemy_locations: HashSet<Position>,
     pub treasure_position: Option<Position>,
-    
+
     // Goal swap detection between players - track last 4 goal pairs (t, t-1, t-2, t-3)
     goal_pair_history: GoalPairHistory,
     goal_pair_index: usize,
@@ -895,7 +895,35 @@ impl WorldState {
                 debug!("    Player 1 path: {:?}", p1_path);
                 debug!("    Player 2 path: {:?}", result);
             } else {
-                debug!("  ✗ No path found avoiding Player 1");
+                debug!("  ✗ No direct path found avoiding Player 1, selecting random destination");
+                
+                // Try to find a random reachable position within Manhattan distance 20
+                const MAX_DISTANCE: i32 = 20;
+                const MAX_ATTEMPTS: usize = 50;
+                
+                for attempt in 0..MAX_ATTEMPTS {
+                    // Generate random offset within Manhattan distance
+                    let seed = (self.tick as usize).wrapping_mul(1103515245).wrapping_add(12345).wrapping_add(attempt);
+                    let dx = ((seed % (MAX_DISTANCE * 2 + 1) as usize) as i32) - MAX_DISTANCE;
+                    let dy_range = MAX_DISTANCE - dx.abs();
+                    let dy = ((seed.wrapping_mul(31) % (dy_range * 2 + 1) as usize) as i32) - dy_range;
+                    
+                    let random_pos = Position::new(start.x + dx, start.y + dy);
+                    
+                    // Check if position is in bounds and walkable
+                    if random_pos.x >= 0 && random_pos.x < self.map.width
+                        && random_pos.y >= 0 && random_pos.y < self.map.height
+                        && self.is_walkable(&random_pos, random_pos)
+                    {
+                        // Try to find path to this random position, still avoiding player 1
+                        if let Some(path) = self.find_path_avoiding_player(start, random_pos, p1_path) {
+                            debug!("  ✓ Found path to random destination {:?} (attempt {})", random_pos, attempt + 1);
+                            return Some(path);
+                        }
+                    }
+                }
+                
+                debug!("  ✗ Could not find path to any random destination after {} attempts", MAX_ATTEMPTS);
             }
             return result;
         }

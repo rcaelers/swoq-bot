@@ -1,6 +1,6 @@
 use crate::goals::goal::ExecuteGoal;
 use crate::goals::path_to_action;
-use crate::goals::{validate_and_trim_path, validate_destination};
+use crate::goals::validate_destination;
 use crate::swoq_interface::DirectedAction;
 use crate::types::Color;
 use crate::world_state::WorldState;
@@ -12,17 +12,7 @@ impl ExecuteGoal for GetKeyGoal {
         let player_pos = world.players[player_index].position;
         let key_pos = world.closest_key(&world.players[player_index], self.0)?;
 
-        // Validate destination and trim path
         validate_destination(world, player_index);
-        validate_and_trim_path(world, player_index);
-
-        // Check if we can reuse existing path
-        if let Some(dest) = world.players[player_index].current_destination
-            && dest == key_pos
-            && let Some(ref path) = world.players[player_index].current_path
-        {
-            return path_to_action(player_pos, path);
-        }
 
         // Compute new path
         world.players[player_index].current_destination = Some(key_pos);
