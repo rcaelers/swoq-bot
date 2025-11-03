@@ -53,6 +53,7 @@ pub struct WorldState {
     pub exit_position: Option<Position>,
     pub boss_position: Option<Position>,
     pub potential_enemy_locations: HashSet<Position>,
+    pub treasure_position: Option<Position>,
     
     // Goal swap detection between players - track last 4 goal pairs (t, t-1, t-2, t-3)
     goal_pair_history: GoalPairHistory,
