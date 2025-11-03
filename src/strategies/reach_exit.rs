@@ -8,7 +8,7 @@ pub struct ReachExitStrategy;
 
 impl SelectGoal for ReachExitStrategy {
     fn strategy_type(&self) -> StrategyType {
-        StrategyType::Individual
+        StrategyType::Coop
     }
 
     #[tracing::instrument(
@@ -16,17 +16,28 @@ impl SelectGoal for ReachExitStrategy {
         skip(self, world),
         fields(strategy = "ReachExitStrategy")
     )]
-    fn try_select(&mut self, world: &WorldState, player_index: usize) -> Option<Goal> {
-        debug!("ReachExitStrategy: Checking for player {}", player_index + 1);
-        let player = &world.players[player_index];
+    fn try_select_coop(
+        &mut self,
+        world: &WorldState,
+        current_goals: &[Option<Goal>],
+    ) -> Vec<Option<Goal>> {
+        let mut goals = vec![None; world.players.len()];
 
-        let exit_pos = world.exit_position?;
-        debug!("ReachExitStrategy: Exit at {:?}, player at {:?}", exit_pos, player.position);
+        let exit_pos = match world.exit_position {
+            Some(pos) => pos,
+            None => return goals,
+        };
+
+        debug!("ReachExitStrategy: Exit at {:?}", exit_pos);
 
         // For 2-player mode, check if all active players can reach the exit before anyone tries
         if world.players.len() > 1 {
-            let active_players: Vec<&crate::player_state::PlayerState> =
-                world.players.iter().filter(|p| p.is_active).collect();
+            let active_players: Vec<(usize, &crate::player_state::PlayerState)> = world
+                .players
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.is_active)
+                .collect();
 
             debug!("ReachExitStrategy: 2-player mode, {} active players", active_players.len());
 
@@ -34,7 +45,6 @@ impl SelectGoal for ReachExitStrategy {
             if active_players.len() > 1 {
                 let reachability: Vec<(usize, bool)> = active_players
                     .iter()
-                    .enumerate()
                     .map(|(idx, p)| {
                         let carrying_boulder = p.inventory == crate::swoq_interface::Inventory::Boulder;
                         let can_reach = world.find_path(p.position, exit_pos).is_some();
@@ -45,7 +55,7 @@ impl SelectGoal for ReachExitStrategy {
                             carrying_boulder,
                             can_reach
                         );
-                        (idx, carrying_boulder || can_reach)
+                        (*idx, carrying_boulder || can_reach)
                     })
                     .collect();
 
@@ -56,40 +66,88 @@ impl SelectGoal for ReachExitStrategy {
                     debug!(
                         "ReachExitStrategy: Not all active players can reach exit, continuing exploration"
                     );
-                    return None;
-                } else {
-                    debug!("ReachExitStrategy: All active players can reach exit, proceeding");
+                    return goals;
                 }
+
+                debug!(
+                    "ReachExitStrategy: All active players can reach exit, assigning ReachExit to all"
+                );
+
+                // Check if any player already has a goal - if so, we can't assign ReachExit to anyone
+                let any_player_has_goal = active_players
+                    .iter()
+                    .any(|(idx, _)| current_goals[*idx].is_some());
+                if any_player_has_goal {
+                    debug!(
+                        "ReachExitStrategy: At least one player already has a goal, cannot assign ReachExit"
+                    );
+                    return goals;
+                }
+
+                // Assign goals to all active players
+                for (player_idx, player) in world.players.iter().enumerate() {
+                    if !player.is_active {
+                        continue;
+                    }
+
+                    // Check if we're carrying a boulder - must drop it before exiting
+                    if player.inventory == crate::swoq_interface::Inventory::Boulder {
+                        debug!(
+                            "ReachExitStrategy: Player {} carrying boulder, must drop before exiting",
+                            player_idx + 1
+                        );
+                        goals[player_idx] = Some(Goal::DropBoulder);
+                    } else {
+                        debug!(
+                            "ReachExitStrategy: Assigning ReachExit goal to player {}",
+                            player_idx + 1
+                        );
+                        goals[player_idx] = Some(Goal::ReachExit);
+                    }
+                }
+
+                return goals;
             }
         }
 
-        // Check if we're carrying a boulder - must drop it before exiting
-        if player.inventory == crate::swoq_interface::Inventory::Boulder {
+        // Single player mode or only one active player - check individually
+        for (player_idx, player) in world.players.iter().enumerate() {
+            if !player.is_active || current_goals[player_idx].is_some() {
+                continue;
+            }
+
+            debug!("ReachExitStrategy: Checking player {}", player_idx + 1);
+
+            // Check if we're carrying a boulder - must drop it before exiting
+            if player.inventory == crate::swoq_interface::Inventory::Boulder {
+                debug!(
+                    "ReachExitStrategy: Player {} carrying boulder, must drop before exiting",
+                    player_idx + 1
+                );
+                goals[player_idx] = Some(Goal::DropBoulder);
+                continue;
+            }
+
+            // Check if we can actually path to the exit
+            let can_path_to_exit = world.find_path(player.position, exit_pos).is_some();
             debug!(
-                "ReachExitStrategy: Player {} carrying boulder, must drop before exiting",
-                player_index + 1
+                "ReachExitStrategy: Player {} can_path_to_exit={}",
+                player_idx + 1,
+                can_path_to_exit
             );
-            return Some(Goal::DropBoulder);
+
+            if can_path_to_exit {
+                debug!("ReachExitStrategy: Assigning ReachExit goal to player {}", player_idx + 1);
+                goals[player_idx] = Some(Goal::ReachExit);
+            } else {
+                debug!(
+                    "ReachExitStrategy: Exit at {:?} is not reachable for player {}, continuing exploration",
+                    exit_pos,
+                    player_idx + 1
+                );
+            }
         }
 
-        // Check if we can actually path to the exit
-        let can_path_to_exit = world.find_path(player.position, exit_pos).is_some();
-        debug!(
-            "ReachExitStrategy: Player {} can_path_to_exit={}",
-            player_index + 1,
-            can_path_to_exit
-        );
-
-        if can_path_to_exit {
-            debug!("ReachExitStrategy: Assigning ReachExit goal to player {}", player_index + 1);
-            Some(Goal::ReachExit)
-        } else {
-            debug!(
-                "ReachExitStrategy: Exit at {:?} is not reachable for player {}, continuing exploration",
-                exit_pos,
-                player_index + 1
-            );
-            None
-        }
+        goals
     }
 }
