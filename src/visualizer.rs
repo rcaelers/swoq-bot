@@ -945,8 +945,8 @@ fn update_log_pane(
     log_pane_query: Query<Entity, With<LogPane>>,
     log_background_query: Query<Entity, With<LogPaneBackground>>,
 ) {
-    // Create log pane background once (persists across map updates)
-    if !game_state.log_background_created && log_background_query.is_empty() {
+    // Create log pane background if it doesn't exist (persists across map updates)
+    if log_background_query.is_empty() {
         commands.spawn((
             Node {
                 position_type: PositionType::Absolute,
