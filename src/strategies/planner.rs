@@ -18,6 +18,13 @@ pub trait SelectGoal {
     /// Returns the strategy type (Individual or Coop)
     fn strategy_type(&self) -> StrategyType;
 
+    /// Return true if this is an emergency strategy that should always run first.
+    /// Emergency strategies can override other goals (e.g., attack/flee from enemies).
+    /// Default implementation returns false (not an emergency strategy).
+    fn is_emergency(&self) -> bool {
+        false
+    }
+
     /// Called on strategies that selected goals in the previous tick.
     /// Return true if this strategy should be tried again before other strategies.
     /// Default implementation returns false (no prioritization).
@@ -148,7 +155,24 @@ impl StrategyPlanner {
             }
         }
 
-        // First, try to prioritize strategies that were used last tick
+        // First, process emergency strategies (e.g., attack/flee enemies)
+        // These can override any other goals
+        for (strategy_idx, strategy) in self.strategies.iter_mut().enumerate() {
+            if strategy.is_emergency() {
+                debug!("Processing emergency strategy {}", strategy_idx);
+                Self::process_strategy(
+                    strategy,
+                    strategy_idx,
+                    world,
+                    &mut selected_goals,
+                    &mut current_strategy_per_player,
+                    num_players,
+                    false,
+                );
+            }
+        }
+
+        // Second, try to prioritize strategies that were used last tick
         let unique_last_strategies: std::collections::HashSet<usize> = self
             .last_strategy_per_player
             .iter()

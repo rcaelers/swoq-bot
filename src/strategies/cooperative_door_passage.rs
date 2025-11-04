@@ -178,7 +178,10 @@ impl CooperativeDoorPassageStrategy {
                         });
                 let color = waiter_color.or(passer_color).unwrap_or(Color::Red);
 
-                goals[waiter_idx] = Some(Goal::WaitOnTile(color, plate_pos));
+                // Only assign WaitOnTile if waiter doesn't have an emergency goal (e.g., attack/flee)
+                if !world.players[waiter_idx].current_goal.as_ref().is_some_and(|g| matches!(g, Goal::KillEnemy(_) | Goal::AvoidEnemy(_))) {
+                    goals[waiter_idx] = Some(Goal::WaitOnTile(color, plate_pos));
+                }
                 goals[passing_idx] = Some(Goal::PassThroughDoor(color, door_pos, target_pos));
                 return goals;
             }
@@ -607,6 +610,11 @@ impl CooperativeDoorPassageStrategy {
 impl SelectGoal for CooperativeDoorPassageStrategy {
     fn strategy_type(&self) -> StrategyType {
         StrategyType::Coop
+    }
+
+    fn is_emergency(&self) -> bool {
+        // Emergency strategy in Execute states to maintain coordination
+        !matches!(self.state, CooperativeDoorPassageState::Setup)
     }
 
     fn prioritize(&self, world: &WorldState) -> bool {

@@ -13,6 +13,10 @@ impl SelectGoal for AttackOrFleeEnemyStrategy {
         StrategyType::Coop
     }
 
+    fn is_emergency(&self) -> bool {
+        true
+    }
+
     #[tracing::instrument(
         level = "debug",
         skip(self, world, current_goals),

@@ -5,6 +5,7 @@ use crate::goals::Goal;
 use crate::strategies::StrategyPlanner;
 use crate::swoq::GameConnection;
 use crate::swoq_interface::{self, DirectedAction, GameStatus};
+use crate::types::Position;
 use crate::world_state::WorldState;
 
 pub struct Game {
@@ -13,7 +14,7 @@ pub struct Game {
     world: WorldState,
     current_level: i32,
     planner: StrategyPlanner,
-    
+
     // Game statistics (persistent across levels)
     pub successful_runs: i32,
     pub failed_runs: i32,
@@ -234,6 +235,11 @@ impl Game {
             }
         }
 
+        // Post-execution safety check: Prevent door crushing in 2-player mode
+        if num_players == 2 {
+            Self::check_door_crush_safety(&self.world, &mut results);
+        }
+
         for (idx, (goal, action)) in results.iter().enumerate() {
             let player = &self.world.players[idx];
             tracing::debug!("Player {}: Selected Goal: {:?}", idx + 1, goal);
@@ -275,5 +281,109 @@ impl Game {
         self.observer
             .on_action_result(action1, action2, action_result, &self.world);
         Ok(action_result)
+    }
+
+    /// Post-execution safety check: If one player is on a plate and another is near a door,
+    /// only force evacuation if the player near the door is actually moving toward it
+    fn check_door_crush_safety(world: &WorldState, results: &mut [(Goal, DirectedAction)]) {
+        use crate::types::Color;
+
+        // Check each player to see if they're on a pressure plate
+        for player_idx in 0..2 {
+            let other_idx = 1 - player_idx;
+            let player_pos = world.players[player_idx].position;
+
+            // Check if this player is currently on a pressure plate
+            let on_plate_color: Option<Color> = [Color::Red, Color::Green, Color::Blue]
+                .iter()
+                .find_map(|&color| {
+                    if let Some(plates) = world.pressure_plates.get_positions(color)
+                        && plates.contains(&player_pos)
+                    {
+                        return Some(color);
+                    }
+                    None
+                });
+
+            if let Some(color) = on_plate_color {
+                let other_player_pos = world.players[other_idx].position;
+                // Clone the action to avoid borrow checker issues when mutating results
+                let other_action = results[other_idx].1;
+
+                // Check if the other player is at/near a door of the same color
+                if let Some(doors) = world.doors.get_positions(color) {
+                    for &door_pos in doors {
+                        let other_on_door = other_player_pos == door_pos;
+
+                        if other_on_door {
+                            // Check if player on plate has a goal that would take them off the plate
+                            let (player_goal, _) = &results[player_idx];
+                            let player_leaving_plate = !matches!(
+                                player_goal,
+                                Goal::WaitOnTile(c, pos) if c == &color && pos == &player_pos
+                            );
+
+                            // If other player is ON the door, this player CANNOT leave the plate
+                            if player_leaving_plate {
+                                tracing::debug!(
+                                    "Post-execution: P{} is ON {:?} door {:?}, P{} MUST stay on {:?} plate at {:?}",
+                                    other_idx + 1,
+                                    color,
+                                    door_pos,
+                                    player_idx + 1,
+                                    color,
+                                    player_pos
+                                );
+                                // Override: force stay on plate with no action
+                                results[player_idx] =
+                                    (Goal::WaitOnTile(color, player_pos), DirectedAction::None);
+                            }
+                        }
+
+                        // Check if other player is adjacent and moving TOWARD the door
+                        let other_near_door = other_player_pos.is_adjacent(&door_pos);
+                        if other_near_door {
+                            // Determine if the action moves toward the door
+                            let next_pos = Self::get_next_position(other_player_pos, other_action);
+                            let moving_toward_door = next_pos == door_pos;
+
+                            // Check if player on plate is leaving
+                            let (player_goal, _) = &results[player_idx];
+                            let player_leaving_plate = !matches!(
+                                player_goal,
+                                Goal::WaitOnTile(c, pos) if c == &color && pos == &player_pos
+                            );
+
+                            // Only force wait if other player is moving toward the door
+                            if player_leaving_plate && moving_toward_door {
+                                tracing::debug!(
+                                    "Post-execution: P{} on {:?} plate leaving, P{} moving toward {:?} door {:?} - forcing WaitOnTile",
+                                    player_idx + 1,
+                                    color,
+                                    other_idx + 1,
+                                    color,
+                                    door_pos
+                                );
+                                results[other_idx] = (
+                                    Goal::WaitOnTile(color, other_player_pos),
+                                    DirectedAction::None,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Helper to determine next position based on an action
+    fn get_next_position(current: Position, action: DirectedAction) -> Position {
+        match action {
+            DirectedAction::MoveNorth => Position::new(current.x, current.y - 1),
+            DirectedAction::MoveSouth => Position::new(current.x, current.y + 1),
+            DirectedAction::MoveEast => Position::new(current.x + 1, current.y),
+            DirectedAction::MoveWest => Position::new(current.x - 1, current.y),
+            _ => current,
+        }
     }
 }

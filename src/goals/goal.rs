@@ -50,9 +50,7 @@ impl Goal {
             Goal::Explore => ExploreGoal.execute(world, player_index),
             Goal::GetKey(color) => GetKeyGoal(*color).execute(world, player_index),
             Goal::OpenDoor(color) => OpenDoorGoal(*color).execute(world, player_index),
-            Goal::WaitOnTile(_color, pos) => {
-                WaitOnTileGoal(*pos).execute(world, player_index)
-            }
+            Goal::WaitOnTile(_color, pos) => WaitOnTileGoal(*pos).execute(world, player_index),
             Goal::PassThroughDoor(_color, door_pos, target_pos) => {
                 PassThroughDoorGoal::new(*door_pos, *target_pos).execute(world, player_index)
             }

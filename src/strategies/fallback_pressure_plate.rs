@@ -12,7 +12,11 @@ impl SelectGoal for FallbackPressurePlateStrategy {
         StrategyType::Coop
     }
 
-    #[tracing::instrument(level = "debug", skip(self, world, current_goals), fields(strategy = "FallbackPressurePlateStrategy"))]
+    #[tracing::instrument(
+        level = "debug",
+        skip(self, world, current_goals),
+        fields(strategy = "FallbackPressurePlateStrategy")
+    )]
     fn try_select_coop(
         &mut self,
         world: &WorldState,
@@ -20,6 +24,15 @@ impl SelectGoal for FallbackPressurePlateStrategy {
     ) -> Vec<Option<Goal>> {
         debug!("FallbackPressurePlateStrategy");
         let mut goals = vec![None; world.players.len()];
+
+        // Only execute in single-player mode to avoid synchronization issues
+        // In 2-player mode, one player leaving a plate could crush the other player
+        if world.players.len() > 1 {
+            debug!(
+                "FallbackPressurePlateStrategy: Skipping in 2-player mode (requires synchronization)"
+            );
+            return goals;
+        }
 
         // Iterate over each color and assign one player per color
         for color in [Color::Red, Color::Green, Color::Blue] {
