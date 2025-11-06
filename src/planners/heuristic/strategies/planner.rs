@@ -142,19 +142,19 @@ impl StrategyPlanner {
         }
 
         // Check for players forced into random exploration due to oscillation
-        for (player_index, goal_slot) in selected_goals.iter_mut().enumerate() {
-            if state.player_states[player_index].force_random_explore_ticks > 0 {
-                debug!(
-                    "Player {} forced to RandomExplore (remaining ticks: {})",
-                    player_index + 1,
-                    state.player_states[player_index].force_random_explore_ticks
-                );
+        // for (player_index, goal_slot) in selected_goals.iter_mut().enumerate() {
+        //     if state.player_states[player_index].force_random_explore_ticks > 0 {
+        //         debug!(
+        //             "Player {} forced to RandomExplore (remaining ticks: {})",
+        //             player_index + 1,
+        //             state.player_states[player_index].force_random_explore_ticks
+        //         );
 
-                if let Some(target) = Self::find_random_reachable_position(state, player_index) {
-                    *goal_slot = Some(Goal::RandomExplore(target));
-                }
-            }
-        }
+        //         if let Some(target) = Self::find_random_reachable_position(state, player_index) {
+        //             *goal_slot = Some(Goal::RandomExplore(target));
+        //         }
+        //     }
+        // }
 
         // First, process emergency strategies (e.g., attack/flee enemies)
         // These can override any other goals
