@@ -111,13 +111,14 @@ impl ColoredItemTracker {
         self.update_with_positions(
             seen_items,
             map,
-            |tile, _pos| validator(tile),
+            |tile, _pos, _color| validator(tile),
             all_visibility_bounds,
         );
     }
 
-    /// Update positions with a validator that can also check the position
-    /// This is useful for cases like pressure plates where a player standing on them shouldn't remove them
+    /// Update positions with a validator that can also check the position and color
+    /// This is useful for cases like pressure plates where a player standing on them shouldn't remove them,
+    /// or for doors where validation depends on the door's color
     #[tracing::instrument(level = "trace", skip(self, map, validator, all_visibility_bounds))]
     pub fn update_with_positions<F>(
         &mut self,
@@ -126,7 +127,7 @@ impl ColoredItemTracker {
         validator: F,
         all_visibility_bounds: &[Bounds],
     ) where
-        F: Fn(&Tile, &Position) -> bool,
+        F: Fn(&Tile, &Position, Color) -> bool,
     {
         // Merge newly seen items with previously known ones
         for (color, new_positions) in seen_items {
@@ -137,7 +138,7 @@ impl ColoredItemTracker {
         }
 
         // Deduplicate and remove consumed items for each color
-        for positions in self.positions.values_mut() {
+        for (color, positions) in self.positions.iter_mut() {
             // Remove duplicates manually
             let mut unique_positions: Vec<Position> = Vec::new();
             for &pos in positions.iter() {
@@ -149,6 +150,7 @@ impl ColoredItemTracker {
 
             // Remove items that have been consumed or opened
             // Only check items within any player's visibility range
+            let color_copy = *color; // Copy color for closure
             positions.retain(|pos| {
                 let is_visible = all_visibility_bounds
                     .iter()
@@ -156,7 +158,7 @@ impl ColoredItemTracker {
                 if is_visible {
                     // We can see this position (by at least one player), so check if item is still there
                     if let Some(tile) = map.get(pos) {
-                        validator(tile, pos)
+                        validator(tile, pos, color_copy)
                     } else {
                         true // Keep if we haven't seen this position
                     }

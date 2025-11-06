@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use tracing::{debug, warn};
 
-use crate::infra::{AStar, Bounds, BoulderTracker, Color, ColoredItemTracker, ItemTracker, Position};
+use crate::infra::{
+    AStar, BoulderTracker, Bounds, Color, ColoredItemTracker, ItemTracker, Position,
+};
 use crate::state::{Map, PlayerState};
 use crate::swoq_interface::{Inventory, State, Tile};
 
@@ -402,21 +404,45 @@ impl WorldState {
         );
 
         // Update door positions using ColoredItemTracker
-        self.doors.update(
+        // Special case: only remove doors if they're not temporarily open due to pressure plate
+        let player_positions: Vec<Position> = self.players.iter().map(|p| p.position).collect();
+
+        self.doors.update_with_positions(
             seen_items.doors,
             &self.map,
-            |tile| matches!(tile, Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue),
+            |tile, _pos, door_color| {
+                // Door is still there if we see a door tile
+                if matches!(tile, Tile::DoorRed | Tile::DoorGreen | Tile::DoorBlue) {
+                    return true;
+                }
+
+                // If we see Empty where a door should be, check if it's temporarily open
+                // due to a player on a pressure plate of the matching color
+                if matches!(tile, Tile::Empty) {
+                    // Check if a player is on a pressure plate of the same color as this door
+                    if let Some(plates) = self.pressure_plates.get_positions(door_color) {
+                        for &plate_pos in plates {
+                            if player_positions.contains(&plate_pos) {
+                                // Player is on plate of same color - door is temporarily open
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                // Door has been permanently opened (with key) or is not a door anymore
+                false
+            },
             all_bounds,
         );
 
         // Update pressure plates using ColoredItemTracker
         // Special case: pressure plates are still there even if a player or boulder is on them
-        let player_positions: Vec<Position> = self.players.iter().map(|p| p.position).collect();
         let boulder_positions = self.boulders.get_all_positions();
         self.pressure_plates.update_with_positions(
             seen_items.pressure_plates,
             &self.map,
-            |tile, pos| {
+            |tile, pos, _color| {
                 matches!(
                     tile,
                     Tile::PressurePlateRed | Tile::PressurePlateGreen | Tile::PressurePlateBlue
@@ -726,7 +752,21 @@ impl WorldState {
     }
 
     /// Check if a position is walkable, considering pressure plate states
+    /// The `planning_player_pos` parameter should be the current position of the player
+    /// for which we're planning a path (not their destination)
     pub fn is_walkable(&self, pos: &Position, goal: Position) -> bool {
+        self.is_walkable_for_player(pos, goal, None)
+    }
+
+    /// Check if a position is walkable for a specific player
+    /// If planning_player_pos is provided, doors won't be considered open if that player
+    /// is the only one on the pressure plate (since they'll leave it to move)
+    pub fn is_walkable_for_player(
+        &self,
+        pos: &Position,
+        goal: Position,
+        planning_player_pos: Option<Position>,
+    ) -> bool {
         match self.map.get(pos) {
             Some(
                 Tile::Empty
@@ -737,9 +777,12 @@ impl WorldState {
                 | Tile::Treasure,
             ) => true,
             // Doors are walkable if their corresponding pressure plate is pressed
-            Some(Tile::DoorRed) => self.is_door_open(Color::Red),
-            Some(Tile::DoorGreen) => self.is_door_open(Color::Green),
-            Some(Tile::DoorBlue) => self.is_door_open(Color::Blue),
+            // (but not if the planning player is the only one on the plate)
+            Some(Tile::DoorRed) => self.is_door_open_for_player(Color::Red, planning_player_pos),
+            Some(Tile::DoorGreen) => {
+                self.is_door_open_for_player(Color::Green, planning_player_pos)
+            }
+            Some(Tile::DoorBlue) => self.is_door_open_for_player(Color::Blue, planning_player_pos),
             // Keys: always avoid unless it's the destination
             Some(
                 Tile::KeyRed
@@ -760,22 +803,62 @@ impl WorldState {
 
     /// Check if a door is open (has a player or boulder on its pressure plate)
     pub fn is_door_open(&self, color: Color) -> bool {
+        self.is_door_open_for_player(color, None)
+    }
+
+    /// Check if a door is open for a specific player's pathfinding
+    /// If planning_player_pos is provided and they're the ONLY thing on the plate,
+    /// returns false (door will close when they move)
+    pub fn is_door_open_for_player(
+        &self,
+        color: Color,
+        planning_player_pos: Option<Position>,
+    ) -> bool {
         if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
-            // Check if any player is on a matching plate
-            for player in &self.players {
-                if plate_positions.contains(&player.position) {
-                    return true;
+            let mut has_boulder = false;
+            let mut other_player_on_plate = false;
+            let mut planning_player_on_plate = false;
+
+            // Check if any boulder is on a matching plate
+            for &plate_pos in plate_positions {
+                if matches!(self.map.get(&plate_pos), Some(Tile::Boulder)) {
+                    has_boulder = true;
+                    break;
                 }
             }
 
-            // Check if any boulder is on a matching plate
-            for plate_pos in plate_positions {
-                if matches!(self.map.get(plate_pos), Some(Tile::Boulder)) {
-                    return true;
+            // If there's a boulder, door is open regardless of players
+            if has_boulder {
+                return true;
+            }
+
+            // Check which players are on the plate
+            for player in &self.players {
+                if plate_positions.contains(&player.position) {
+                    if Some(player.position) == planning_player_pos {
+                        planning_player_on_plate = true;
+                    } else {
+                        other_player_on_plate = true;
+                    }
                 }
             }
+
+            // Door is open if:
+            // - There's another player on the plate (not the planning player), OR
+            // - Planning player is on plate but we're not doing planning (backward compatibility)
+            if other_player_on_plate {
+                return true;
+            }
+
+            if planning_player_on_plate && planning_player_pos.is_none() {
+                return true;
+            }
+
+            // Planning player is the only one on plate, door will close when they move
+            false
+        } else {
+            false
         }
-        false
     }
 
     /// Find a path from start to goal, considering pressure plate states
@@ -805,6 +888,7 @@ impl WorldState {
         start: Position,
         goal: Position,
         other_player_path: &[Position],
+        planning_player_pos: Position,
     ) -> Option<Vec<Position>> {
         // Check if the start position itself conflicts with the other player's path
         // At tick 0, we can't start where the other player is
@@ -824,7 +908,8 @@ impl WorldState {
 
         AStar::find_path(&self.map, start, goal, |pos, goal_pos, tick| {
             // First check basic walkability (including door states)
-            if !self.is_walkable(pos, goal_pos) {
+            // Pass the planning player's position so doors they're holding open aren't considered walkable
+            if !self.is_walkable_for_player(pos, goal_pos, Some(planning_player_pos)) {
                 return false;
             }
 
@@ -865,6 +950,8 @@ impl WorldState {
         start: Position,
         goal: Position,
     ) -> Option<Vec<Position>> {
+        let planning_player_pos = self.players[player_index].position;
+
         // For player 2, avoid player 1's path
         if player_index == 1
             && self.players.len() > 1
@@ -876,7 +963,7 @@ impl WorldState {
                 goal,
                 p1_path.len()
             );
-            let result = self.find_path_avoiding_player(start, goal, p1_path);
+            let result = self.find_path_avoiding_player(start, goal, p1_path, planning_player_pos);
             if result.is_some() {
                 debug!("  ✓ Found path avoiding Player 1");
                 debug!("    Player 1 path: {:?}", p1_path);
@@ -906,12 +993,19 @@ impl WorldState {
                         && random_pos.x < self.map.width
                         && random_pos.y >= 0
                         && random_pos.y < self.map.height
-                        && self.is_walkable(&random_pos, random_pos)
+                        && self.is_walkable_for_player(
+                            &random_pos,
+                            random_pos,
+                            Some(planning_player_pos),
+                        )
                     {
                         // Try to find path to this random position, still avoiding player 1
-                        if let Some(path) =
-                            self.find_path_avoiding_player(start, random_pos, p1_path)
-                        {
+                        if let Some(path) = self.find_path_avoiding_player(
+                            start,
+                            random_pos,
+                            p1_path,
+                            planning_player_pos,
+                        ) {
                             debug!(
                                 "  ✓ Found path to random destination {:?} (attempt {})",
                                 random_pos,
