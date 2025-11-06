@@ -1,34 +1,19 @@
 mod swoq_interface {
     tonic::include_proto!("swoq.interface");
 }
-mod boulder_tracker;
-mod composite_observer;
-mod default_observer;
-mod game;
-mod game_observer;
-mod goals;
-mod item_tracker;
-mod map;
-mod pathfinding;
-mod player_state;
-mod strategies;
-mod swoq;
-mod types;
-mod visualizer;
-mod visualizing_observer;
-mod world_state;
+mod infra;
+mod planners;
+mod state;
+mod ui;
 
 use dotenv::dotenv;
 use std::env;
 use std::sync::{Arc, Mutex, mpsc};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-use composite_observer::CompositeObserver;
-use default_observer::DefaultObserver;
-use game::Game;
-use swoq::GameConnection;
-use visualizer::{run_visualizer, GameStateSnapshot};
-use visualizing_observer::VisualizingObserver;
+use infra::{CompositeObserver, DefaultObserver, GameConnection, VisualizingObserver};
+use planners::heuristic::Game;
+use ui::{GameStateSnapshot, run_visualizer};
 
 fn get_env_var_i32(key: &str) -> Option<i32> {
     env::var(key).ok().and_then(|val| val.parse::<i32>().ok())
