@@ -1,19 +1,15 @@
 use tracing::debug;
 
+use crate::infra::Position;
+use crate::infra::{path_to_action, use_direction};
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
-use crate::planners::heuristic::goals::{path_to_action, use_direction};
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct FetchBoulderGoal(pub Position);
 
 impl ExecuteGoal for FetchBoulderGoal {
-    fn execute(
-        &self,
-        state: &mut PlannerState,
-        player_index: usize,
-    ) -> Option<DirectedAction> {
+    fn execute(&self, state: &mut PlannerState, player_index: usize) -> Option<DirectedAction> {
         let player = &state.world.players[player_index];
         let player_pos = player.position;
         let boulder_pos = self.0;

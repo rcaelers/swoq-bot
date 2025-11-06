@@ -1,7 +1,7 @@
 use tracing::debug;
 
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
-use crate::planners::heuristic::goals::{path_to_action, use_direction};
+use crate::infra::{path_to_action, use_direction};
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
 use crate::infra::Position;

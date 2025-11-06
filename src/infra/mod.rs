@@ -17,3 +17,41 @@ pub use pathfinding::AStar;
 pub use swoq::GameConnection;
 pub use types::{Bounds, Color, Position};
 pub use visualizing_observer::VisualizingObserver;
+
+use crate::swoq_interface::DirectedAction;
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+pub fn path_to_action(current: Position, path: &[Position]) -> Option<DirectedAction> {
+    if path.len() < 2 {
+        return None;
+    }
+    let next = path[1];
+
+    if next.y < current.y {
+        Some(DirectedAction::MoveNorth)
+    } else if next.y > current.y {
+        Some(DirectedAction::MoveSouth)
+    } else if next.x > current.x {
+        Some(DirectedAction::MoveEast)
+    } else if next.x < current.x {
+        Some(DirectedAction::MoveWest)
+    } else {
+        None
+    }
+}
+
+pub fn use_direction(from: Position, to: Position) -> DirectedAction {
+    if to.y < from.y {
+        DirectedAction::UseNorth
+    } else if to.y > from.y {
+        DirectedAction::UseSouth
+    } else if to.x > from.x {
+        DirectedAction::UseEast
+    } else {
+        DirectedAction::UseWest
+    }
+}
+

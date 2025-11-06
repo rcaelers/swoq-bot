@@ -1,10 +1,10 @@
 use tracing::debug;
 
+use crate::infra::Position;
+use crate::infra::path_to_action;
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
-use crate::planners::heuristic::goals::path_to_action;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct PickupHealthGoal(pub Position);
 
