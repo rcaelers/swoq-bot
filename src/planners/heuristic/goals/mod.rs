@@ -1,8 +1,7 @@
 use tracing::debug;
 
-use crate::planners::heuristic::planner_state::PlannerState;
-use crate::swoq_interface::DirectedAction;
 use crate::infra::Position;
+use crate::planners::heuristic::planner_state::PlannerState;
 
 // Goal modules
 pub mod goal;

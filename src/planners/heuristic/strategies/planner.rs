@@ -83,52 +83,52 @@ impl StrategyPlanner {
     }
 
     /// Find a random reachable position for forced random exploration
-    fn find_random_reachable_position(
-        state: &PlannerState,
-        player_index: usize,
-    ) -> Option<crate::infra::Position> {
-        let player = &state.world.players[player_index];
+    // fn find_random_reachable_position(
+    //     state: &PlannerState,
+    //     player_index: usize,
+    // ) -> Option<crate::infra::Position> {
+    //     let player = &state.world.players[player_index];
 
-        // Collect all empty positions that we've seen
-        let empty_positions: Vec<crate::infra::Position> = state
-            .world
-            .map
-            .iter()
-            .filter_map(|(pos, tile)| {
-                if matches!(tile, crate::swoq_interface::Tile::Empty)
-                    && player.position.distance(pos) > 5
-                {
-                    Some(*pos)
-                } else {
-                    None
-                }
-            })
-            .collect();
+    //     // Collect all empty positions that we've seen
+    //     let empty_positions: Vec<crate::infra::Position> = state
+    //         .world
+    //         .map
+    //         .iter()
+    //         .filter_map(|(pos, tile)| {
+    //             if matches!(tile, crate::swoq_interface::Tile::Empty)
+    //                 && player.position.distance(pos) > 5
+    //             {
+    //                 Some(*pos)
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .collect();
 
-        if empty_positions.is_empty() {
-            return None;
-        }
+    //     if empty_positions.is_empty() {
+    //         return None;
+    //     }
 
-        // Try random positions until we find a reachable one (max 10 attempts)
-        let mut seed = state.world.tick as usize;
+    //     // Try random positions until we find a reachable one (max 10 attempts)
+    //     let mut seed = state.world.tick as usize;
 
-        for _ in 0..10 {
-            let index = seed % empty_positions.len();
-            let target = empty_positions[index];
+    //     for _ in 0..10 {
+    //         let index = seed % empty_positions.len();
+    //         let target = empty_positions[index];
 
-            // Check if reachable
-            if state.world.find_path(player.position, target).is_some() {
-                debug!("Forced RandomExplore: Selected reachable position {:?}", target);
-                return Some(target);
-            }
+    //         // Check if reachable
+    //         if state.world.find_path(player.position, target).is_some() {
+    //             debug!("Forced RandomExplore: Selected reachable position {:?}", target);
+    //             return Some(target);
+    //         }
 
-            // Try next position
-            seed = seed.wrapping_add(1);
-        }
+    //         // Try next position
+    //         seed = seed.wrapping_add(1);
+    //     }
 
-        debug!("Forced RandomExplore: No reachable position found after 10 attempts");
-        None
-    }
+    //     debug!("Forced RandomExplore: No reachable position found after 10 attempts");
+    //     None
+    // }
 
     #[tracing::instrument(level = "debug", skip(self, state))]
     pub fn select_goal(&mut self, state: &PlannerState) -> Vec<Goal> {
