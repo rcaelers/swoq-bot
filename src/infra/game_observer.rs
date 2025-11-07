@@ -1,3 +1,4 @@
+use crate::infra::Position;
 use crate::state::WorldState;
 use crate::swoq_interface::{ActResult, DirectedAction, GameStatus, State};
 
@@ -28,6 +29,11 @@ pub trait GameObserver {
 
     /// Called when a goal is selected
     fn on_goal_selected(&mut self, player_index: usize, goal_name: &str, world: &WorldState);
+
+    /// Called to update player paths for visualization
+    fn on_paths_updated(&mut self, _paths: Vec<Option<Vec<Position>>>) {
+        // Default implementation does nothing
+    }
 
     /// Called when an action is selected
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState);

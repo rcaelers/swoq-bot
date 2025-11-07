@@ -13,6 +13,7 @@ pub struct VisualizingObserver {
     last_result: Option<ActResult>,
     last_p1_goal: String,
     last_p2_goal: Option<String>,
+    player_paths: Vec<Option<Vec<crate::infra::Position>>>,
     // Store statistics for shared state update
     game_count: i32,
     successful_runs: i32,
@@ -32,6 +33,7 @@ impl VisualizingObserver {
             last_result: None,
             last_p1_goal: String::new(),
             last_p2_goal: None,
+            player_paths: Vec::new(),
             game_count: 0,
             successful_runs: 0,
             failed_runs: 0,
@@ -51,6 +53,7 @@ impl VisualizingObserver {
                 failed_runs: self.failed_runs,
                 p1_goal: self.last_p1_goal.clone(),
                 p2_goal: self.last_p2_goal.clone(),
+                player_paths: self.player_paths.clone(),
             });
         }
     }
@@ -94,6 +97,10 @@ impl GameObserver for VisualizingObserver {
         } else if player_index == 1 {
             self.last_p2_goal = Some(goal_name.to_string());
         }
+    }
+
+    fn on_paths_updated(&mut self, paths: Vec<Option<Vec<crate::infra::Position>>>) {
+        self.player_paths = paths;
     }
 
     fn on_action_selected(&mut self, _action: DirectedAction, _world: &WorldState) {

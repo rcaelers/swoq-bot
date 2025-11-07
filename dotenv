@@ -7,3 +7,5 @@ SWOQ_LOOP=true # Set to true to restart the game after completion (works for bot
 SWOQ_REPLAYS_FOLDER=./Replays/
 SWOQ_VISUALIZER=true
 SWOQ_ASSETS_FOLDER=/Users/robc/src/swoc/bot/assets
+SWOQ_GOAP_ENABLED=true
+SWOQ_GOAP_MAX_DEPTH=50

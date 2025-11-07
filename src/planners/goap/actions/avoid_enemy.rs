@@ -1,0 +1,76 @@
+use crate::infra::Position;
+use crate::planners::goap::planner_state::PlannerState;
+use crate::state::WorldState;
+use crate::swoq_interface::DirectedAction;
+
+use super::helpers::execute_avoid;
+use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
+
+#[derive(Debug, Clone)]
+pub struct AvoidEnemyAction {
+    pub enemy_pos: Position,
+}
+
+impl GOAPActionTrait for AvoidEnemyAction {
+    fn precondition(&self, state: &PlannerState, _player_index: usize) -> bool {
+        state
+            .world
+            .enemies
+            .get_positions()
+            .contains(&self.enemy_pos)
+    }
+
+    fn effect(&self, _state: &mut PlannerState, _player_index: usize) {}
+
+    fn execute(
+        &self,
+        world: &WorldState,
+        player_index: usize,
+        _execution_state: &mut ActionExecutionState,
+    ) -> (DirectedAction, ExecutionStatus) {
+        execute_avoid(world, player_index, self.enemy_pos)
+    }
+
+    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+        5.0 + state
+            .world
+            .path_distance(state.world.players[player_index].position, self.enemy_pos)
+            .unwrap_or(1000) as f32
+            * 0.1
+    }
+
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        // Avoidance is immediate, takes 1 tick to move away
+        1
+    }
+
+    fn reward(&self, state: &PlannerState, player_index: usize) -> f32 {
+        // Reward for avoiding when we don't have a sword, penalty when we do
+        let player = &state.world.players[player_index];
+        if player.has_sword {
+            -5.0 // Negative reward if we have sword (should attack instead)
+        } else {
+            3.0 // Positive reward for survival when unarmed
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "AvoidEnemy"
+    }
+
+    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+        let mut actions = Vec::new();
+        let world = &state.world;
+
+        for enemy_pos in world.enemies.get_positions() {
+            let action = AvoidEnemyAction {
+                enemy_pos: *enemy_pos,
+            };
+            if action.precondition(state, player_index) {
+                actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+            }
+        }
+
+        actions
+    }
+}

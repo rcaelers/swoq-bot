@@ -192,6 +192,12 @@ impl ColoredItemTracker {
     pub fn colors(&self) -> impl Iterator<Item = &Color> {
         self.positions.keys()
     }
+
+    pub fn remove(&mut self, color: Color, pos: Position) {
+        if let Some(positions) = self.positions.get_mut(&color) {
+            positions.retain(|&p| p != pos);
+        }
+    }
 }
 
 impl Default for ColoredItemTracker {

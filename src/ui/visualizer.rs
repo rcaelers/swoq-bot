@@ -16,6 +16,7 @@ pub struct GameStateSnapshot {
     pub failed_runs: i32,
     pub p1_goal: String,
     pub p2_goal: Option<String>,
+    pub player_paths: Vec<Option<Vec<Position>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -501,7 +502,7 @@ fn render_world_state(
     }
 
     // Render current path for Player 1 (if available)
-    if let Some(ref path) = world_state.players[0].current_path {
+    if let Some(Some(path)) = snapshot.player_paths.get(0) {
         for pos in path.iter() {
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);
@@ -512,9 +513,7 @@ fn render_world_state(
     }
 
     // Render current path for Player 2 (if available)
-    if world_state.players.len() > 1
-        && let Some(ref path) = world_state.players[1].current_path
-    {
+    if let Some(Some(path)) = snapshot.player_paths.get(1) {
         for pos in path.iter() {
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);

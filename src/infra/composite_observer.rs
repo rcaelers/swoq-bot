@@ -51,6 +51,12 @@ impl GameObserver for CompositeObserver {
         }
     }
 
+    fn on_paths_updated(&mut self, paths: Vec<Option<Vec<crate::infra::Position>>>) {
+        for observer in &mut self.observers {
+            observer.on_paths_updated(paths.clone());
+        }
+    }
+
     fn on_action_selected(&mut self, action: DirectedAction, world: &WorldState) {
         for observer in &mut self.observers {
             observer.on_action_selected(action, world);

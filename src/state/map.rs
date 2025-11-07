@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use crate::swoq_interface::Tile;
 use crate::infra::Position;
+use crate::swoq_interface::Tile;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Map {
     pub width: i32,
     pub height: i32,

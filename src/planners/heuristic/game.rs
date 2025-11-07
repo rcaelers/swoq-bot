@@ -269,6 +269,16 @@ impl Game {
             }
         }
 
+        // Update observer with current paths for visualization
+        let paths: Vec<Option<Vec<crate::infra::Position>>> = self
+            .state
+            .world
+            .players
+            .iter()
+            .map(|player| player.current_path.clone())
+            .collect();
+        self.observer.on_paths_updated(paths);
+
         results
     }
 

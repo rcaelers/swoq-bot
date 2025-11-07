@@ -25,7 +25,7 @@ struct SeenItems {
     enemies: Vec<Position>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WorldState {
     pub level: i32,
     pub tick: i32,
@@ -778,11 +778,16 @@ impl WorldState {
             ) => true,
             // Doors are walkable if their corresponding pressure plate is pressed
             // (but not if the planning player is the only one on the plate)
-            Some(Tile::DoorRed) => self.is_door_open_for_player(Color::Red, planning_player_pos),
-            Some(Tile::DoorGreen) => {
-                self.is_door_open_for_player(Color::Green, planning_player_pos)
+            // Also allow doors if they are the goal destination (for OpenDoor action)
+            Some(Tile::DoorRed) => {
+                *pos == goal || self.is_door_open_for_player(Color::Red, planning_player_pos)
             }
-            Some(Tile::DoorBlue) => self.is_door_open_for_player(Color::Blue, planning_player_pos),
+            Some(Tile::DoorGreen) => {
+                *pos == goal || self.is_door_open_for_player(Color::Green, planning_player_pos)
+            }
+            Some(Tile::DoorBlue) => {
+                *pos == goal || self.is_door_open_for_player(Color::Blue, planning_player_pos)
+            }
             // Keys: always avoid unless it's the destination
             Some(
                 Tile::KeyRed
