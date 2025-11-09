@@ -1,9 +1,9 @@
 use tracing::debug;
 
+use crate::infra::{Color, Position};
 use crate::planners::heuristic::goals::Goal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::planners::heuristic::strategies::planner::{SelectGoal, StrategyType};
-use crate::infra::{Color, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoulderPlatePhase {

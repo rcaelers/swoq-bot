@@ -1,9 +1,9 @@
 use tracing::debug;
 
+use crate::infra::Position;
 use crate::planners::heuristic::goals::Goal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::planners::heuristic::strategies::planner::{SelectGoal, StrategyType};
-use crate::infra::Position;
 
 pub struct RandomExploreStrategy;
 

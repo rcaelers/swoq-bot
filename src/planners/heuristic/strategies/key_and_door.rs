@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use tracing::debug;
 
+use crate::infra::Color;
 use crate::planners::heuristic::goals::Goal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::planners::heuristic::strategies::planner::{SelectGoal, StrategyType};
-use crate::infra::Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyDoorPhase {

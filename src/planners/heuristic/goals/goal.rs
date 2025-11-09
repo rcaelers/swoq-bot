@@ -52,8 +52,7 @@ impl Goal {
             Goal::OpenDoor(color) => OpenDoorGoal(*color).execute(state, player_index),
             Goal::WaitOnTile(_color, pos) => WaitOnTileGoal(*pos).execute(state, player_index),
             Goal::PassThroughDoor(_color, door_pos, target_pos) => {
-                PassThroughDoorGoal::new(*door_pos, *target_pos)
-                    .execute(state, player_index)
+                PassThroughDoorGoal::new(*door_pos, *target_pos).execute(state, player_index)
             }
             Goal::PickupSword => PickupSwordGoal.execute(state, player_index),
             Goal::PickupHealth(pos) => PickupHealthGoal(*pos).execute(state, player_index),
@@ -65,9 +64,7 @@ impl Goal {
                 DropBoulderOnPlateGoal(*pos).execute(state, player_index)
             }
             Goal::DropBoulder => DropBoulderGoal.execute(state, player_index),
-            Goal::RandomExplore(pos) => {
-                RandomExploreGoal(*pos).execute(state, player_index)
-            }
+            Goal::RandomExplore(pos) => RandomExploreGoal(*pos).execute(state, player_index),
         }
     }
 
