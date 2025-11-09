@@ -19,7 +19,7 @@ impl PlayerState {
     pub fn new(pos: Position) -> Self {
         Self {
             position: pos,
-            health: 10,
+            health: 5,
             inventory: Inventory::None,
             has_sword: false,
             is_active: true,

@@ -75,6 +75,10 @@ impl ItemTracker {
     pub fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }
+
+    pub fn remove(&mut self, pos: Position) {
+        self.positions.retain(|&p| p != pos);
+    }
 }
 
 impl Default for ItemTracker {

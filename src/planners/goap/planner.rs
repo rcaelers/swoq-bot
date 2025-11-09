@@ -319,6 +319,8 @@ impl GOAPPlanner {
             candidates.extend(OpenDoorAction::generate(&simulated_state, next_player));
             let sword_count = PickupSwordAction::generate(&simulated_state, next_player).len();
             candidates.extend(PickupSwordAction::generate(&simulated_state, next_player));
+            let health_count = PickupHealthAction::generate(&simulated_state, next_player).len();
+            candidates.extend(PickupHealthAction::generate(&simulated_state, next_player));
             let attack_count = AttackEnemyAction::generate(&simulated_state, next_player).len();
             candidates.extend(AttackEnemyAction::generate(&simulated_state, next_player));
             let avoid_count = AvoidEnemyAction::generate(&simulated_state, next_player).len();
@@ -351,6 +353,7 @@ impl GOAPPlanner {
                     get_key = key_count,
                     open_door = door_count,
                     pickup_sword = sword_count,
+                    pickup_health = health_count,
                     attack = attack_count,
                     avoid = avoid_count,
                     plate_door = plate_door_count,
