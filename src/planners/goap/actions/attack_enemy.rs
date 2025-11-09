@@ -17,7 +17,8 @@ impl GOAPActionTrait for AttackEnemyAction {
         let world = &state.world;
         let player = &world.players[player_index];
         // Path reachability validated during generation
-        player.has_sword && world.enemies.get_positions().contains(&self.enemy_pos)
+        // Need sword and health > 5 to attack (enemy will hit back for 5 damage)
+        player.has_sword && player.health > 5 && world.enemies.get_positions().contains(&self.enemy_pos)
     }
 
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
@@ -26,7 +27,10 @@ impl GOAPActionTrait for AttackEnemyAction {
             .world
             .map
             .insert(self.enemy_pos, crate::swoq_interface::Tile::Empty);
-        state.world.players[player_index].position = self.enemy_pos;
+        let player = &mut state.world.players[player_index];
+        player.position = self.enemy_pos;
+        // Enemy hits back - lose 5 health
+        player.health -= 5;
     }
 
     fn execute(
@@ -50,13 +54,28 @@ impl GOAPActionTrait for AttackEnemyAction {
         "AttackEnemy"
     }
 
+    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        // Positive reward for attacking nearby enemies when armed
+        15.0
+    }
+
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];
 
+        // Only generate attack actions if player has a sword and health > 5
+        if !player.has_sword || player.health <= 5 {
+            return actions;
+        }
+
         for enemy_pos in world.enemies.get_positions() {
-            if let Some(path) = world.find_path_for_player(player_index, player.position, *enemy_pos) {
+            let dist = world.path_distance_to_enemy(player.position, *enemy_pos);
+            
+            // Only generate attack action if enemy is close (within 3 tiles)
+            if dist <= 3
+                && let Some(path) = world.find_path_for_player(player_index, player.position, *enemy_pos)
+            {
                 let action = AttackEnemyAction {
                     enemy_pos: *enemy_pos,
                     cached_distance: path.len() as u32,
