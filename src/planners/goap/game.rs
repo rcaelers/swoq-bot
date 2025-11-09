@@ -155,7 +155,7 @@ impl Game {
 
         // Execute current plans
         self.executor
-            .execute(self.planner.state.as_mut().unwrap(), &self.world)
+            .execute(self.planner.state.as_mut().unwrap(), &mut self.world)
     }
 
     fn check_level(&mut self, game: &crate::infra::swoq::Game) {

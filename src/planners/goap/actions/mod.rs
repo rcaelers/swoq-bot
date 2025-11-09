@@ -5,24 +5,25 @@ mod drop_boulder_on_plate;
 mod explore;
 mod get_key;
 pub mod helpers;
-mod pickup_boulder;
 mod open_door;
 mod pass_through_door_with_plate;
+mod pickup_boulder;
 mod pickup_sword;
 mod reach_exit;
+mod touch_plate;
 mod wait_on_plate;
 
 pub use attack_enemy::AttackEnemyAction;
-pub use avoid_enemy::AvoidEnemyAction;
 pub use drop_boulder::DropBoulderAction;
 pub use drop_boulder_on_plate::DropBoulderOnPlateAction;
 pub use explore::ExploreAction;
 pub use get_key::GetKeyAction;
-pub use pickup_boulder::PickupBoulderAction;
 pub use open_door::OpenDoorAction;
 pub use pass_through_door_with_plate::PassThroughDoorWithPlateAction;
+pub use pickup_boulder::PickupBoulderAction;
 pub use pickup_sword::PickupSwordAction;
 pub use reach_exit::ReachExitAction;
+pub use touch_plate::TouchPlateAction;
 pub use wait_on_plate::WaitOnPlateAction;
 
 use crate::infra::{Color, Position};
@@ -36,7 +37,7 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
     fn effect(&self, state: &mut PlannerState, player_index: usize);
     fn execute(
         &self,
-        world: &WorldState,
+        world: &mut WorldState,
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus);
@@ -95,6 +96,7 @@ pub struct ActionExecutionState {
     pub path_target: Option<Position>,
     pub exploration_target: Option<Position>,
     pub initial_object_counts: Option<ObjectCounts>,
+    pub wait_ticks: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -106,4 +108,3 @@ pub struct ObjectCounts {
     pub num_boulders: usize,
     pub exit_visible: bool,
 }
-

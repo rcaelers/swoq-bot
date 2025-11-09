@@ -1,5 +1,7 @@
 use crate::planners::goap::actions::{ActionExecutionState, GOAPActionTrait};
 use crate::state::WorldState;
+use std::collections::HashSet;
+use crate::infra::Color;
 
 /// Per-player GOAP planning state
 #[derive(Debug, Clone)]
@@ -51,14 +53,20 @@ pub struct PlannerState {
 
     /// Per-player GOAP planning state
     pub player_states: Vec<PlayerPlannerState>,
+
+    /// Track which plate colors have been touched (for idle activity reward)
+    pub plates_touched: HashSet<Color>,
 }
 
 impl PlannerState {
     pub fn new(world: WorldState) -> Self {
         let num_players = world.players.len();
+        let plates_touched = world.plates_touched.clone();
+        tracing::info!("Initializing PlannerState for {} players", num_players);
         Self {
             world,
             player_states: vec![PlayerPlannerState::new(); num_players],
+            plates_touched,
         }
     }
 
@@ -67,6 +75,8 @@ impl PlannerState {
         while self.player_states.len() < self.world.players.len() {
             self.player_states.push(PlayerPlannerState::new());
         }
+        // Sync plates_touched from world
+        self.plates_touched = self.world.plates_touched.clone();
     }
 
     /// Check if replanning is needed

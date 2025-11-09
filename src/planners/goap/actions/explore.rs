@@ -61,7 +61,7 @@ impl GOAPActionTrait for ExploreAction {
 
     fn execute(
         &self,
-        world: &WorldState,
+        world: &mut WorldState,
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {

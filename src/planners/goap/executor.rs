@@ -12,7 +12,7 @@ impl GOAPExecutor {
     }
 
     /// Execute current plans for all players
-    pub fn execute(&self, state: &mut PlannerState, world: &WorldState) -> Vec<DirectedAction> {
+    pub fn execute(&self, state: &mut PlannerState, world: &mut WorldState) -> Vec<DirectedAction> {
         let mut actions = Vec::new();
 
         for player_id in 0..world.players.len() {

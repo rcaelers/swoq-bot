@@ -98,6 +98,13 @@ pub fn evaluate_state(state: &PlannerState, initial_state: &PlannerState) -> f32
         score += new_swords as f32 * 5.0; // Reward for discovering swords
     }
 
+    // Small reward for idle activity (touching plates when nothing else to do)
+    // Only counts once per color
+    let new_plate_colors_touched = state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;
+    if new_plate_colors_touched > 0 {
+        score += new_plate_colors_touched as f32 * 2.0; // Small reward to encourage idle exploration
+    }
+
     // Disqualify plans where players end with non-empty inventory
     let holding_items = state
         .world

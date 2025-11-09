@@ -49,6 +49,9 @@ pub struct WorldState {
     pub boss_position: Option<Position>,
     pub potential_enemy_locations: HashSet<Position>,
     pub treasure_position: Option<Position>,
+
+    // Track which pressure plate colors have been touched (for TouchPlate action)
+    pub plates_touched: HashSet<Color>,
 }
 
 impl WorldState {
@@ -70,6 +73,7 @@ impl WorldState {
             boss_position: None,
             treasure_position: None,
             potential_enemy_locations: HashSet::new(),
+            plates_touched: HashSet::new(),
         }
     }
 

@@ -330,6 +330,8 @@ impl GOAPPlanner {
             let drop_on_plate_count =
                 DropBoulderOnPlateAction::generate(&simulated_state, next_player).len();
             candidates.extend(DropBoulderOnPlateAction::generate(&simulated_state, next_player));
+            let touch_plate_count = TouchPlateAction::generate(&simulated_state, next_player).len();
+            candidates.extend(TouchPlateAction::generate(&simulated_state, next_player));
             let exit_count = ReachExitAction::generate(&simulated_state, next_player).len();
             candidates.extend(ReachExitAction::generate(&simulated_state, next_player));
 
@@ -348,6 +350,7 @@ impl GOAPPlanner {
                     pickup_boulder = pickup_boulder_count,
                     drop_boulder = drop_boulder_count,
                     drop_on_plate = drop_on_plate_count,
+                    touch_plate = touch_plate_count,
                     exit = exit_count,
                     "Generated candidates"
                 );
