@@ -23,6 +23,12 @@ impl GOAPActionTrait for PickupSwordAction {
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
         state.world.players[player_index].has_sword = true;
         state.world.players[player_index].position = self.sword_pos;
+        // Remove sword from tracker and map (for planning simulation)
+        state.world.swords.remove(self.sword_pos);
+        state
+            .world
+            .map
+            .insert(self.sword_pos, crate::swoq_interface::Tile::Empty);
     }
 
     fn execute(
