@@ -871,15 +871,41 @@ impl WorldState {
         }
     }
 
-    /// Find a path from start to goal, considering pressure plate states
+    /// Check if a position is adjacent to any enemy
+    pub fn is_adjacent_to_enemy(&self, pos: &Position) -> bool {
+        let enemy_positions = self.enemies.get_positions();
+        pos.neighbors()
+            .iter()
+            .any(|neighbor| enemy_positions.contains(neighbor))
+    }
+
+    /// Get the movement cost for a position, with higher cost for positions adjacent to enemies
+    /// Returns base cost of 1 for normal tiles, higher cost for enemy-adjacent tiles
+    pub fn movement_cost(&self, pos: &Position) -> i32 {
+        if self.is_adjacent_to_enemy(pos) {
+            // Make enemy-adjacent tiles much more expensive (10x) to strongly discourage pathfinding through them
+            // This is still better than making them completely unwalkable, as it allows escape routes
+            10
+        } else {
+            1
+        }
+    }
+
+    /// Find a path from start to goal, avoiding tiles adjacent to enemies
+    /// Uses weighted pathfinding to make enemy-adjacent tiles more expensive
     pub fn find_path(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
-        AStar::find_path(&self.map, start, goal, |pos, goal_pos, _tick| {
-            self.is_walkable(pos, goal_pos)
-        })
+        AStar::find_path_with_cost(
+            &self.map,
+            start,
+            goal,
+            |pos, goal_pos, _tick| self.is_walkable(pos, goal_pos),
+            |pos, _goal_pos, _tick| self.movement_cost(pos),
+        )
     }
 
     /// Find a path with custom walkability checking logic.
     /// The closure receives (position, goal, tick) and should return true if the position is walkable.
+    /// Also avoids tiles adjacent to enemies.
     pub fn find_path_with_custom_walkability<F>(
         &self,
         start: Position,
@@ -889,7 +915,9 @@ impl WorldState {
     where
         F: Fn(&Position, Position, i32) -> bool,
     {
-        AStar::find_path(&self.map, start, goal, is_walkable)
+        AStar::find_path_with_cost(&self.map, start, goal, is_walkable, |pos, _goal_pos, _tick| {
+            self.movement_cost(pos)
+        })
     }
 
     /// Find a path that avoids colliding with another player's planned path
@@ -916,41 +944,51 @@ impl WorldState {
             return None;
         }
 
-        AStar::find_path(&self.map, start, goal, |pos, goal_pos, tick| {
-            // First check basic walkability (including door states)
-            // Pass the planning player's position so doors they're holding open aren't considered walkable
-            if !self.is_walkable_for_player(pos, goal_pos, Some(planning_player_pos)) {
-                return false;
-            }
-
-            let tick_index = tick as usize;
-
-            // Check if the other player is at this position at this tick
-            if tick_index < other_player_path.len() {
-                if *pos == other_player_path[tick_index] {
+        AStar::find_path_with_cost(
+            &self.map,
+            start,
+            goal,
+            |pos, goal_pos, tick| {
+                // First check basic walkability (including door states)
+                // Pass the planning player's position so doors they're holding open aren't considered walkable
+                if !self.is_walkable_for_player(pos, goal_pos, Some(planning_player_pos)) {
                     return false;
                 }
-            } else if let Some(last_pos) = other_player_path.last()
-                && *pos == *last_pos
-            {
-                return false;
-            }
 
-            // Check swap collisions
-            if tick_index > 0
-                && tick_index - 1 < other_player_path.len()
-                && *pos == other_player_path[tick_index - 1]
-            {
-                return false;
-            }
+                let tick_index = tick as usize;
 
-            if tick_index + 1 < other_player_path.len() && *pos == other_player_path[tick_index + 1]
-            {
-                return false;
-            }
+                // Check if the other player is at this position at this tick
+                if tick_index < other_player_path.len() {
+                    if *pos == other_player_path[tick_index] {
+                        return false;
+                    }
+                } else if let Some(last_pos) = other_player_path.last()
+                    && *pos == *last_pos
+                {
+                    return false;
+                }
 
-            true
-        })
+                // Check swap collisions
+                if tick_index > 0
+                    && tick_index - 1 < other_player_path.len()
+                    && *pos == other_player_path[tick_index - 1]
+                {
+                    return false;
+                }
+
+                if tick_index + 1 < other_player_path.len()
+                    && *pos == other_player_path[tick_index + 1]
+                {
+                    return false;
+                }
+
+                true
+            },
+            |pos, _goal_pos, _tick| {
+                // Use enemy-aware movement cost
+                self.movement_cost(pos)
+            },
+        )
     }
 
     /// Find a path for a player, avoiding collision with other player's path

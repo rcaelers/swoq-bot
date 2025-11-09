@@ -37,6 +37,22 @@ impl AStar {
     where
         F: Fn(&Position, Position, i32) -> bool,
     {
+        Self::find_path_with_cost(map, start, goal, is_walkable_at_tick, |_, _, _| 1)
+    }
+
+    /// Find a path with custom cost function for each step.
+    /// The cost function receives (position, goal, tick_from_start) and returns the cost to enter that position.
+    pub fn find_path_with_cost<F, C>(
+        map: &Map,
+        start: Position,
+        goal: Position,
+        is_walkable_at_tick: F,
+        cost_fn: C,
+    ) -> Option<Vec<Position>>
+    where
+        F: Fn(&Position, Position, i32) -> bool,
+        C: Fn(&Position, Position, i32) -> i32,
+    {
         // If start equals goal, return path with just the goal position
         if start == goal {
             return Some(vec![goal]);
@@ -71,7 +87,8 @@ impl AStar {
                 return None;
             }
 
-            let current_tick = *g_score.get(&current).unwrap_or(&0);
+            let current_g_score = *g_score.get(&current).unwrap_or(&0);
+            let current_tick = current_g_score; // For backwards compatibility, tick is based on g_score
 
             for neighbor in current.neighbors() {
                 if closed_set.contains(&neighbor) {
@@ -91,7 +108,8 @@ impl AStar {
                     continue;
                 }
 
-                let tentative_g = current_tick + 1;
+                let step_cost = cost_fn(&neighbor, goal, next_tick);
+                let tentative_g = current_g_score + step_cost;
 
                 if tentative_g < *g_score.get(&neighbor).unwrap_or(&i32::MAX) {
                     came_from.insert(neighbor, current);
