@@ -28,7 +28,6 @@ impl AStar {
     /// Find a path with optional tick-aware walkability checking.
     /// The callback `is_walkable_at_tick` receives (position, goal, tick_from_start).
     /// For tick-unaware pathfinding, simply ignore the tick parameter in your closure.
-    #[tracing::instrument(level = "trace", skip(map, is_walkable_at_tick), fields(start_x = start.x, start_y = start.y, goal_x = goal.x, goal_y = goal.y))]
     pub fn find_path<F>(
         map: &Map,
         start: Position,
@@ -59,7 +58,6 @@ impl AStar {
 
         while let Some(Node { pos: current, .. }) = open_set.pop() {
             if current == goal {
-                tracing::trace!(expansions, "Path found");
                 return Some(reconstruct_path(&came_from, current));
             }
 
@@ -70,7 +68,6 @@ impl AStar {
 
             expansions += 1;
             if expansions > MAX_EXPANSIONS {
-                tracing::warn!(expansions, "Max expansions reached, target unreachable");
                 return None;
             }
 
@@ -107,7 +104,6 @@ impl AStar {
             }
         }
 
-        tracing::trace!(expansions, "No path found");
         None
     }
 }
