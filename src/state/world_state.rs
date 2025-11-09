@@ -585,12 +585,28 @@ impl WorldState {
 
     /// Get the path distance to an enemy position.
     /// Only calculates actual path if Manhattan distance < 5, otherwise returns Manhattan distance.
+    /// Uses pathfinding WITHOUT enemy avoidance to get true distance.
     pub fn path_distance_to_enemy(&self, from: Position, enemy_pos: Position) -> i32 {
         let manhattan_dist = from.distance(&enemy_pos);
 
         // Only use expensive pathfinding for nearby enemies
         if manhattan_dist < 6 {
-            self.path_distance(from, enemy_pos).unwrap_or(i32::MAX)
+            // Use pathfinding without enemy avoidance (uniform cost)
+            // Custom walkability that allows walking to the enemy position
+            let path = AStar::find_path_with_cost(
+                &self.map,
+                from,
+                enemy_pos,
+                |pos, goal_pos, _tick| {
+                    // Allow the goal position (enemy) to be walkable
+                    if *pos == goal_pos {
+                        return true;
+                    }
+                    self.is_walkable(pos, goal_pos)
+                },
+                |_pos, _goal_pos, _tick| 1, // Uniform cost - no enemy avoidance
+            );
+            path.map(|p| p.len() as i32).unwrap_or(i32::MAX)
         } else {
             manhattan_dist
         }

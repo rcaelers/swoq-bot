@@ -120,6 +120,7 @@ impl Game {
         self.planner.update_state(&self.world);
 
         // Check if we need to replan
+        tracing::info!("GOAP: Check replan");
         let (should_replan, is_emergency) = self.planner.needs_replan();
         if should_replan {
             if is_emergency {

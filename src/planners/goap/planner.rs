@@ -30,6 +30,9 @@ struct PlanNode {
 
     /// Total depth (total number of actions across all players)
     total_actions: usize,
+
+    /// Accumulated action rewards
+    action_rewards: f32,
 }
 
 impl PlanNode {
@@ -106,6 +109,7 @@ impl GOAPPlanner {
     /// Check if replanning is needed
     /// Returns (needs_replan, is_emergency)
     pub fn needs_replan(&self) -> (bool, bool) {
+        tracing::info!("GOAP: Check replan in planner");
         self.state
             .as_ref()
             .map_or((true, true), |s| s.needs_replan())
@@ -176,6 +180,7 @@ impl GOAPPlanner {
             g_cost: 0.0,
             h_cost: 0.0,
             total_actions: 0,
+            action_rewards: 0.0,
         };
 
         let mut open_set = BinaryHeap::new();
@@ -264,16 +269,19 @@ impl GOAPPlanner {
             // If this node has actions, evaluate the simulated state for best plan tracking
             if current_node.total_actions > 0 {
                 let state_reward = evaluate_state(&simulated_state, &current_node.initial_state);
+                let total_reward = state_reward + current_node.action_rewards;
                 tracing::info!(
                     player_id = next_player,
                     total_actions = current_node.total_actions,
                     state_reward = state_reward,
+                    action_rewards = current_node.action_rewards,
+                    total_reward = total_reward,
                     g_cost = current_node.g_cost,
                     "Evaluated state"
                 );
 
-                // Select best plan by: (1) highest state_reward, (2) lowest g_cost (path length) as tiebreaker
-                let is_better = if (state_reward - best_state_reward).abs() < 0.001 {
+                // Select best plan by: (1) highest total_reward, (2) lowest g_cost (path length) as tiebreaker
+                let is_better = if (total_reward - best_state_reward).abs() < 0.001 {
                     // State rewards are equal (within epsilon), use g_cost as tiebreaker
                     current_node.g_cost < best_g_cost
                 } else {
@@ -283,13 +291,13 @@ impl GOAPPlanner {
                 if is_better {
                     tracing::info!(
                         total_actions = current_node.total_actions,
-                        old_state_reward = best_state_reward,
-                        new_state_reward = state_reward,
+                        old_total_reward = best_state_reward,
+                        new_total_reward = total_reward,
                         old_g_cost = best_g_cost,
                         new_g_cost = current_node.g_cost,
                         "Found better plan"
                     );
-                    best_state_reward = state_reward;
+                    best_state_reward = total_reward;
                     best_g_cost = current_node.g_cost;
                     best_plan = Some(current_node.clone());
                 }
@@ -391,12 +399,16 @@ impl GOAPPlanner {
                 child_end_times[next_player] = action_end_time;
 
                 let child_g_cost = current_node.g_cost + cost;
+                let action_reward = action.reward(&current_node.state, next_player);
+                let child_action_rewards = current_node.action_rewards + action_reward;
 
                 tracing::trace!(
                     player_id = next_player,
                     action = ?action,
                     new_end_time = child_end_times[next_player],
                     child_g_cost = child_g_cost,
+                    action_reward = action_reward,
+                    child_action_rewards = child_action_rewards,
                     "Creating child node"
                 );
 
@@ -420,6 +432,7 @@ impl GOAPPlanner {
                     g_cost: child_g_cost,
                     h_cost: 0.0,
                     total_actions: child_total_actions,
+                    action_rewards: child_action_rewards,
                 };
                 open_set.push(child_node);
             }

@@ -14,6 +14,7 @@ mod touch_plate;
 mod wait_on_plate;
 
 pub use attack_enemy::AttackEnemyAction;
+pub use avoid_enemy::AvoidEnemyAction;
 pub use drop_boulder::DropBoulderAction;
 pub use drop_boulder_on_plate::DropBoulderOnPlateAction;
 pub use explore::ExploreAction;
@@ -55,6 +56,12 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
 
     fn is_pass_through_door_with_plate(&self) -> Option<(Color, Position, Position)> {
         None
+    }
+
+    /// Returns the reward value for this action (higher = better)
+    /// Reward is added to the state evaluation when this action is taken
+    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        0.0
     }
 
     /// Generate all possible instances of this action type based on current state

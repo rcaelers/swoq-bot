@@ -48,15 +48,33 @@ impl GOAPActionTrait for AvoidEnemyAction {
         "AvoidEnemy"
     }
 
+    fn is_terminal(&self) -> bool {
+        true
+    }
+
+    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        // Positive reward for avoiding enemies when vulnerable
+        2000.0
+    }
+
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
+        let player = &world.players[player_index];
+
+        // Only generate avoid actions if player doesn't have a sword
+        if player.has_sword {
+            return actions;
+        }
 
         for enemy_pos in world.enemies.get_positions() {
-            let action = AvoidEnemyAction {
-                enemy_pos: *enemy_pos,
-            };
-            if action.precondition(state, player_index) {
+            let dist = world.path_distance_to_enemy(player.position, *enemy_pos);
+
+            // Only generate avoid action if enemy is close (within 3 tiles)
+            if dist <= 3 {
+                let action = AvoidEnemyAction {
+                    enemy_pos: *enemy_pos,
+                };
                 actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
             }
         }

@@ -1,14 +1,14 @@
+use crate::infra::Color;
 use crate::planners::goap::actions::{ActionExecutionState, GOAPActionTrait};
 use crate::state::WorldState;
 use std::collections::HashSet;
-use crate::infra::Color;
 
 /// Per-player GOAP planning state
 #[derive(Debug, Clone)]
 pub struct PlayerPlannerState {
     /// Current action plan sequence for this player (up to max_depth actions)
     pub plan_sequence: Vec<Box<dyn GOAPActionTrait>>,
-    
+
     /// Index of the current action being executed in the plan sequence
     pub current_action_index: usize,
 
@@ -84,9 +84,64 @@ impl PlannerState {
     pub fn needs_replan(&self) -> (bool, bool) {
         // Only replan when all plans are complete (empty)
         // ExploreAction will mark itself complete when new objects are discovered
-        let plan_complete = self.player_states.iter().all(|ps| ps.plan_sequence.is_empty());
-        
-        (plan_complete, false)
+        let plan_complete = self
+            .player_states
+            .iter()
+            .all(|ps| ps.plan_sequence.is_empty());
+
+        tracing::info!("Plan complete: {}", plan_complete);
+        // Check for emergency: enemy too close
+        let mut is_emergency = false;
+        for (player_id, player) in self.world.players.iter().enumerate() {
+            tracing::debug!("Checking player {} at position {:?}", player_id, player.position);
+            if !player.is_active {
+                continue;
+            }
+            tracing::debug!(
+                "Player {} is active with health {}",
+                player_id,
+                player.health
+            );
+            let has_sword = player.has_sword;
+            let danger_threshold = if has_sword { 2 } else { 3 };
+
+            // Check distance to any enemy
+            for enemy_pos in self.world.enemies.get_positions() {
+                tracing::debug!(
+                    "Checking distance from Player {} at {:?} to Enemy at {:?}",
+                    player_id,
+                    player.position,
+                    enemy_pos
+                );
+                let dist = self
+                    .world
+                    .path_distance_to_enemy(player.position, *enemy_pos);
+                tracing::debug!(
+                    "Distance from Player {} to Enemy at {:?} is {} (threshold: {})",
+                    player_id,
+                    enemy_pos,
+                    dist,
+                    danger_threshold
+                );
+                if dist <= danger_threshold {
+                    tracing::warn!(
+                        "Emergency replan: Player {} too close to enemy at {:?} (distance: {}, threshold: {})",
+                        player_id,
+                        enemy_pos,
+                        dist,
+                        danger_threshold
+                    );
+                    is_emergency = true;
+                    break;
+                }
+            }
+
+            if is_emergency {
+                break;
+            }
+        }
+
+        (plan_complete || is_emergency, is_emergency)
     }
 
     /// Clear the plan for a player (e.g., when action completes or fails)
@@ -106,9 +161,7 @@ impl PlannerState {
 
         for (player_id, ps) in self.player_states.iter().enumerate() {
             // Players without plans or with completed actions should be planned first
-            if ps.action_end_time.is_none()
-                || ps.action_end_time.unwrap() <= current_tick
-            {
+            if ps.action_end_time.is_none() || ps.action_end_time.unwrap() <= current_tick {
                 return Some(player_id);
             }
 

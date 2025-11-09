@@ -60,3 +60,25 @@ pub(super) fn execute_use_adjacent(
     // Use the common execute_move_to which handles path caching
     execute_move_to(world, player_index, target, execution_state)
 }
+
+pub(super) fn execute_avoid(
+    world: &WorldState,
+    player_index: usize,
+    danger_pos: Position,
+) -> (DirectedAction, ExecutionStatus) {
+    let player = &world.players[player_index];
+    let dx = player.position.x - danger_pos.x;
+    let dy = player.position.y - danger_pos.y;
+    let action = if dx.abs() > dy.abs() {
+        if dx > 0 {
+            DirectedAction::MoveEast
+        } else {
+            DirectedAction::MoveWest
+        }
+    } else if dy > 0 {
+        DirectedAction::MoveNorth
+    } else {
+        DirectedAction::MoveSouth
+    };
+    (action, ExecutionStatus::InProgress)
+}

@@ -25,21 +25,6 @@ impl PartialOrd for Node {
 pub struct AStar;
 
 impl AStar {
-    /// Find a path with optional tick-aware walkability checking.
-    /// The callback `is_walkable_at_tick` receives (position, goal, tick_from_start).
-    /// For tick-unaware pathfinding, simply ignore the tick parameter in your closure.
-    pub fn find_path<F>(
-        map: &Map,
-        start: Position,
-        goal: Position,
-        is_walkable_at_tick: F,
-    ) -> Option<Vec<Position>>
-    where
-        F: Fn(&Position, Position, i32) -> bool,
-    {
-        Self::find_path_with_cost(map, start, goal, is_walkable_at_tick, |_, _, _| 1)
-    }
-
     /// Find a path with custom cost function for each step.
     /// The cost function receives (position, goal, tick_from_start) and returns the cost to enter that position.
     pub fn find_path_with_cost<F, C>(
