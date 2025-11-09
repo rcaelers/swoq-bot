@@ -18,6 +18,9 @@ pub struct PlayerPlannerState {
 
     /// When the current action is expected to complete (in ticks)
     pub action_end_time: Option<u32>,
+
+    /// Whether the boulder currently in inventory (if any) is unexplored
+    pub boulder_is_unexplored: Option<bool>,
 }
 
 impl PlayerPlannerState {
@@ -28,6 +31,7 @@ impl PlayerPlannerState {
             execution_state: ActionExecutionState::default(),
             action_start_time: None,
             action_end_time: None,
+            boulder_is_unexplored: None,
         }
     }
 }

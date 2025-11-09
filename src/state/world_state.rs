@@ -518,28 +518,18 @@ impl WorldState {
     pub fn get_boulders_on_plates(&self) -> HashMap<Color, Vec<Position>> {
         let mut result: HashMap<Color, Vec<Position>> = HashMap::new();
 
-        tracing::debug!("get_boulders_on_plates: checking {} boulders", self.boulders.len());
-
         // Check each color's pressure plates to see if a boulder is on any of them
         for &color in &[Color::Red, Color::Green, Color::Blue] {
             if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
-                tracing::debug!("Checking {:?} plates: {:?}", color, plate_positions);
                 for &plate_pos in plate_positions {
                     // Check if there's a boulder at this plate position
                     // The tile will show as PressurePlate*, not Boulder, so just check the boulder tracker
                     if self.boulders.contains(&plate_pos) {
-                        tracing::info!(
-                            "Found boulder on {:?} pressure plate at {:?}",
-                            color,
-                            plate_pos
-                        );
                         result.entry(color).or_default().push(plate_pos);
                     }
                 }
             }
         }
-
-        tracing::debug!("get_boulders_on_plates result: {:?}", result);
         result
     }
 
@@ -756,6 +746,21 @@ impl WorldState {
     /// for which we're planning a path (not their destination)
     pub fn is_walkable(&self, pos: &Position, goal: Position) -> bool {
         self.is_walkable_for_player(pos, goal, None)
+    }
+
+    /// Get all valid in-bounds neighbors of a position
+    /// Returns only neighbors that are within the map bounds
+    pub fn valid_neighbors(&self, pos: &Position) -> Vec<Position> {
+        pos.neighbors()
+            .iter()
+            .filter(|&&neighbor| {
+                neighbor.x >= 0
+                    && neighbor.x < self.map.width
+                    && neighbor.y >= 0
+                    && neighbor.y < self.map.height
+            })
+            .copied()
+            .collect()
     }
 
     /// Check if a position is walkable for a specific player

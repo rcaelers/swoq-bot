@@ -1,8 +1,11 @@
 mod attack_enemy;
 mod avoid_enemy;
+mod drop_boulder;
+mod drop_boulder_on_plate;
 mod explore;
 mod get_key;
 pub mod helpers;
+mod pickup_boulder;
 mod open_door;
 mod pass_through_door_with_plate;
 mod pickup_sword;
@@ -11,8 +14,11 @@ mod wait_on_plate;
 
 pub use attack_enemy::AttackEnemyAction;
 pub use avoid_enemy::AvoidEnemyAction;
+pub use drop_boulder::DropBoulderAction;
+pub use drop_boulder_on_plate::DropBoulderOnPlateAction;
 pub use explore::ExploreAction;
 pub use get_key::GetKeyAction;
+pub use pickup_boulder::PickupBoulderAction;
 pub use open_door::OpenDoorAction;
 pub use pass_through_door_with_plate::PassThroughDoorWithPlateAction;
 pub use pickup_sword::PickupSwordAction;
@@ -39,10 +45,6 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
 
     /// Returns the expected duration in ticks for this action to complete
     fn duration(&self, state: &PlannerState, player_index: usize) -> u32;
-
-    /// Returns the reward value for completing this action (higher = better)
-    /// Reward guides action selection in planning
-    fn reward(&self, state: &PlannerState, player_index: usize) -> f32;
 
     /// Returns true if this action should terminate planning for this player
     /// Terminal actions prevent further expansion of the plan branch

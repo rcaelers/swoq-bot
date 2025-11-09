@@ -9,16 +9,17 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 #[derive(Debug, Clone)]
 pub struct ReachExitAction {
     pub exit_pos: Position,
+    pub cached_distance: u32,
 }
 
 impl GOAPActionTrait for ReachExitAction {
     fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
-        world.exit_position == Some(self.exit_pos)
-            && world
-                .find_path_for_player(player_index, player.position, self.exit_pos)
-                .is_some()
+        
+        // Player must have empty inventory and path reachability validated during generation
+        player.inventory == crate::swoq_interface::Inventory::None
+            && world.exit_position == Some(self.exit_pos)
     }
 
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
@@ -34,29 +35,12 @@ impl GOAPActionTrait for ReachExitAction {
         execute_move_to(world, player_index, self.exit_pos, execution_state)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
-        state
-            .world
-            .path_distance(state.world.players[player_index].position, self.exit_pos)
-            .unwrap_or(1000) as f32
-            * 0.1
+    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
-        // Distance to exit
-        state
-            .world
-            .path_distance(state.world.players[player_index].position, self.exit_pos)
-            .unwrap_or(1000) as u32
-    }
-
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // Highest reward when enemies are cleared, otherwise low
-        if state.world.enemies.is_empty() {
-            50.0 // Maximum reward - this is the goal!
-        } else {
-            5.0 // Low reward if enemies still present
-        }
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        self.cached_distance
     }
 
     fn name(&self) -> &'static str {
@@ -70,9 +54,15 @@ impl GOAPActionTrait for ReachExitAction {
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
+        let player = &world.players[player_index];
 
-        if let Some(exit_pos) = world.exit_position {
-            let action = ReachExitAction { exit_pos };
+        if let Some(exit_pos) = world.exit_position
+            && let Some(path) = world.find_path_for_player(player_index, player.position, exit_pos)
+        {
+            let action = ReachExitAction {
+                exit_pos,
+                cached_distance: path.len() as u32,
+            };
             if action.precondition(state, player_index) {
                 actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
             }

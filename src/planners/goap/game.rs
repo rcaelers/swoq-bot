@@ -128,6 +128,7 @@ impl Game {
                 tracing::info!("GOAP: Scheduled replanning");
             }
             self.planner.plan(&self.world);
+            tracing::info!("GOAP: Done replanning");
         }
 
         // Update observer with current action goals and paths for each player

@@ -9,17 +9,15 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 #[derive(Debug, Clone)]
 pub struct PickupSwordAction {
     pub sword_pos: Position,
+    pub cached_distance: u32,
 }
 
 impl GOAPActionTrait for PickupSwordAction {
     fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
-        world.swords.get_positions().contains(&self.sword_pos)
-            && !player.has_sword
-            && world
-                .find_path_for_player(player_index, player.position, self.sword_pos)
-                .is_some()
+        // Path reachability validated during generation
+        world.swords.get_positions().contains(&self.sword_pos) && !player.has_sword
     }
 
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
@@ -36,30 +34,12 @@ impl GOAPActionTrait for PickupSwordAction {
         execute_move_to(world, player_index, self.sword_pos, execution_state)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
-        10.0 + state
-            .world
-            .path_distance(state.world.players[player_index].position, self.sword_pos)
-            .unwrap_or(1000) as f32
-            * 0.1
+    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        10.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
-        // Distance to sword + 1 tick to pick it up
-        state
-            .world
-            .path_distance(state.world.players[player_index].position, self.sword_pos)
-            .unwrap_or(1000) as u32
-            + 1
-    }
-
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // High reward if there are enemies present
-        if !state.world.enemies.is_empty() {
-            18.0 // Very high reward when enemies exist
-        } else {
-            8.0 // Still good to pick up for potential future enemies
-        }
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        self.cached_distance + 1 // +1 to pick it up
     }
 
     fn name(&self) -> &'static str {
@@ -69,13 +49,17 @@ impl GOAPActionTrait for PickupSwordAction {
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
+        let player = &world.players[player_index];
 
         for sword_pos in world.swords.get_positions() {
-            let action = PickupSwordAction {
-                sword_pos: *sword_pos,
-            };
-            if action.precondition(state, player_index) {
-                actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+            if let Some(path) = world.find_path_for_player(player_index, player.position, *sword_pos) {
+                let action = PickupSwordAction {
+                    sword_pos: *sword_pos,
+                    cached_distance: path.len() as u32,
+                };
+                if action.precondition(state, player_index) {
+                    actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+                }
             }
         }
 

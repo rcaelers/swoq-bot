@@ -10,6 +10,7 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 pub struct OpenDoorAction {
     pub color: Color,
     pub door_pos: Position,
+    pub cached_distance: u32,
 }
 
 impl GOAPActionTrait for OpenDoorAction {
@@ -26,11 +27,8 @@ impl GOAPActionTrait for OpenDoorAction {
             .doors
             .get_positions(self.color)
             .is_some_and(|positions| positions.contains(&self.door_pos));
-        has_key
-            && door_exists
-            && world
-                .find_path_for_player(player_index, player.position, self.door_pos)
-                .is_some()
+        // Path reachability validated during generation
+        has_key && door_exists
     }
 
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
@@ -52,26 +50,12 @@ impl GOAPActionTrait for OpenDoorAction {
         execute_use_adjacent(world, player_index, self.door_pos, execution_state)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
-        10.0 + state
-            .world
-            .path_distance(state.world.players[player_index].position, self.door_pos)
-            .unwrap_or(1000) as f32
-            * 0.1
+    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        10.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
-        // Distance to door + 1 tick to open it
-        state
-            .world
-            .path_distance(state.world.players[player_index].position, self.door_pos)
-            .unwrap_or(1000) as u32
-            + 1
-    }
-
-    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
-        // High reward for opening doors (unlocks new areas)
-        20.0
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        self.cached_distance + 1 // +1 to open it
     }
 
     fn name(&self) -> &'static str {
@@ -81,18 +65,21 @@ impl GOAPActionTrait for OpenDoorAction {
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
+        let player = &world.players[player_index];
 
         // Generate actions for all doors of all colors
         for color in [Color::Red, Color::Green, Color::Blue] {
             if let Some(door_positions) = world.doors.get_positions(color) {
                 for door_pos in door_positions {
-                    let action = OpenDoorAction {
-                        color,
-                        door_pos: *door_pos,
-                    };
-                    // Only include if precondition is satisfied
-                    if action.precondition(state, player_index) {
-                        actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+                    if let Some(path) = world.find_path_for_player(player_index, player.position, *door_pos) {
+                        let action = OpenDoorAction {
+                            color,
+                            door_pos: *door_pos,
+                            cached_distance: path.len() as u32,
+                        };
+                        if action.precondition(state, player_index) {
+                            actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+                        }
                     }
                 }
             }

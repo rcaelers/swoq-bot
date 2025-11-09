@@ -66,15 +66,6 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         to_door + through_door + 3 // +3 ticks for coordination
     }
 
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // Reward for synchronized door passage (accessing new areas)
-        if !state.world.is_door_open(self.door_color) {
-            16.0 // High reward for opening new areas with synchronized actions
-        } else {
-            0.0 // No reward if door already open
-        }
-    }
-
     fn name(&self) -> &'static str {
         "PassThroughDoorWithPlate"
     }

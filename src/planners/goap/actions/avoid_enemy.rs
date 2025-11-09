@@ -44,16 +44,6 @@ impl GOAPActionTrait for AvoidEnemyAction {
         1
     }
 
-    fn reward(&self, state: &PlannerState, player_index: usize) -> f32 {
-        // Reward for avoiding when we don't have a sword, penalty when we do
-        let player = &state.world.players[player_index];
-        if player.has_sword {
-            -5.0 // Negative reward if we have sword (should attack instead)
-        } else {
-            3.0 // Positive reward for survival when unarmed
-        }
-    }
-
     fn name(&self) -> &'static str {
         "AvoidEnemy"
     }

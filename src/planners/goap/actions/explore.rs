@@ -6,7 +6,10 @@ use crate::swoq_interface::DirectedAction;
 use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 
 #[derive(Debug, Clone)]
-pub struct ExploreAction;
+pub struct ExploreAction {
+    pub cached_nearest_frontier: crate::infra::Position, // Nearest unexplored frontier tile
+    pub cached_distance: u32,                            // Distance to nearest frontier
+}
 
 impl ExploreAction {
     fn find_nearest_frontier(player: &crate::state::PlayerState) -> Option<crate::infra::Position> {
@@ -125,10 +128,14 @@ impl GOAPActionTrait for ExploreAction {
                 tracing::info!(
                     player_index = player_index,
                     keys_change = current_counts.num_keys as i32 - initial_counts.num_keys as i32,
-                    swords_change = current_counts.num_swords as i32 - initial_counts.num_swords as i32,
-                    health_change = current_counts.num_health as i32 - initial_counts.num_health as i32,
-                    plates_change = current_counts.num_pressure_plates as i32 - initial_counts.num_pressure_plates as i32,
-                    boulders_change = current_counts.num_boulders as i32 - initial_counts.num_boulders as i32,
+                    swords_change =
+                        current_counts.num_swords as i32 - initial_counts.num_swords as i32,
+                    health_change =
+                        current_counts.num_health as i32 - initial_counts.num_health as i32,
+                    plates_change = current_counts.num_pressure_plates as i32
+                        - initial_counts.num_pressure_plates as i32,
+                    boulders_change =
+                        current_counts.num_boulders as i32 - initial_counts.num_boulders as i32,
                     exit_discovered = current_counts.exit_visible && !initial_counts.exit_visible,
                     "NEW OBJECTS DISCOVERED! Completing exploration action"
                 );
@@ -158,46 +165,12 @@ impl GOAPActionTrait for ExploreAction {
         result
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
-        let player = &state.world.players[player_index];
-        let path_cost = player
-            .unexplored_frontier
-            .iter()
-            .map(|pos| {
-                state
-                    .world
-                    .path_distance(player.position, *pos)
-                    .unwrap_or(1000) as f32
-            })
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0);
-        1.0 + path_cost * 0.1
+    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        1.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
-        let player = &state.world.players[player_index];
-        // Duration is the distance to nearest unexplored tile
-        player
-            .unexplored_frontier
-            .iter()
-            .map(|pos| {
-                state
-                    .world
-                    .path_distance(player.position, *pos)
-                    .unwrap_or(1000) as u32
-            })
-            .min()
-            .unwrap_or(1)
-    }
-
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // Very low reward - exploration should be a fallback when nothing better is available
-        // Only slightly positive if we haven't found the exit yet
-        if state.world.exit_position.is_none() {
-            0.5 // Small positive reward when we need to find the exit
-        } else {
-            -5.0 // Negative reward once exit is known - avoid exploration
-        }
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        self.cached_distance
     }
 
     fn name(&self) -> &'static str {
@@ -209,11 +182,21 @@ impl GOAPActionTrait for ExploreAction {
     }
 
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
-        let action = ExploreAction;
-        if action.precondition(state, player_index) {
-            vec![Box::new(action)]
-        } else {
-            vec![]
+        let world = &state.world;
+        let player = &world.players[player_index];
+
+        // Find nearest frontier and cache the distance
+        if let Some(nearest) = Self::find_nearest_frontier(player)
+            && let Some(path) = world.find_path_for_player(player_index, player.position, nearest)
+        {
+            let action = ExploreAction {
+                cached_nearest_frontier: nearest,
+                cached_distance: path.len() as u32,
+            };
+            if action.precondition(state, player_index) {
+                return vec![Box::new(action)];
+            }
         }
+        vec![]
     }
 }

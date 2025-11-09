@@ -10,20 +10,19 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 pub struct GetKeyAction {
     pub color: Color,
     pub key_pos: Position,
+    pub cached_distance: u32,
 }
 
 impl GOAPActionTrait for GetKeyAction {
     fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
+        // Path reachability validated during generation
         player.inventory == Inventory::None
             && world
                 .keys
                 .get_positions(self.color)
                 .is_some_and(|positions| positions.contains(&self.key_pos))
-            && world
-                .find_path_for_player(player_index, player.position, self.key_pos)
-                .is_some()
     }
 
     fn effect(&self, state: &mut PlannerState, player_index: usize) {
@@ -51,32 +50,12 @@ impl GOAPActionTrait for GetKeyAction {
         execute_move_to(world, player_index, self.key_pos, execution_state)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
-        10.0 + state
-            .world
-            .path_distance(state.world.players[player_index].position, self.key_pos)
-            .unwrap_or(1000) as f32
-            * 0.1
+    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+        10.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
-        // Distance to key + 1 tick to pick it up
-        state
-            .world
-            .path_distance(state.world.players[player_index].position, self.key_pos)
-            .unwrap_or(1000) as u32
-            + 1
-    }
-
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // High reward if matching door exists and is closed
-        if let Some(doors) = state.world.doors.get_positions(self.color)
-            && !doors.is_empty()
-            && !state.world.is_door_open(self.color)
-        {
-            return 15.0; // Very high reward for keys that open closed doors
-        }
-        5.0 // Base reward for collecting keys
+    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+        self.cached_distance + 1 // +1 to pick it up
     }
 
     fn name(&self) -> &'static str {
@@ -86,18 +65,25 @@ impl GOAPActionTrait for GetKeyAction {
     fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
+        let player = &world.players[player_index];
 
         // Generate actions for all known keys of all colors
         for color in [Color::Red, Color::Green, Color::Blue] {
             if let Some(key_positions) = world.keys.get_positions(color) {
                 for key_pos in key_positions {
-                    let action = GetKeyAction {
-                        color,
-                        key_pos: *key_pos,
-                    };
-                    // Only include if precondition is satisfied
-                    if action.precondition(state, player_index) {
-                        actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+                    // Check path and cache distance
+                    if let Some(path) =
+                        world.find_path_for_player(player_index, player.position, *key_pos)
+                    {
+                        let action = GetKeyAction {
+                            color,
+                            key_pos: *key_pos,
+                            cached_distance: path.len() as u32,
+                        };
+                        // Check other preconditions
+                        if action.precondition(state, player_index) {
+                            actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+                        }
                     }
                 }
             }

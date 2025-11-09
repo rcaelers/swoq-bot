@@ -61,15 +61,6 @@ impl GOAPActionTrait for WaitOnPlateAction {
         distance + 5 // +5 ticks for partner to complete their part
     }
 
-    fn reward(&self, state: &PlannerState, _player_index: usize) -> f32 {
-        // Reward for synchronized door opening (one player waits on plate)
-        if !state.world.is_door_open(self.color) {
-            12.0 // Good reward for helping open doors with synchronized actions
-        } else {
-            0.0 // No reward if door already open
-        }
-    }
-
     fn name(&self) -> &'static str {
         "WaitOnPlate"
     }
