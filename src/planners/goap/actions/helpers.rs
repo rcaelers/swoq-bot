@@ -67,18 +67,37 @@ pub(super) fn execute_avoid(
     danger_pos: Position,
 ) -> (DirectedAction, ExecutionStatus) {
     let player = &world.players[player_index];
-    let dx = player.position.x - danger_pos.x;
-    let dy = player.position.y - danger_pos.y;
-    let action = if dx.abs() > dy.abs() {
-        if dx > 0 {
-            DirectedAction::MoveEast
-        } else {
-            DirectedAction::MoveWest
+    let player_pos = player.position;
+    let current_distance = player_pos.distance(&danger_pos);
+
+    // Try all four directions and pick the one that maximizes distance from danger
+    let mut best_action = None;
+    let mut best_distance = current_distance;
+
+    let actions = [
+        (DirectedAction::MoveNorth, Position::new(player_pos.x, player_pos.y - 1)),
+        (DirectedAction::MoveEast, Position::new(player_pos.x + 1, player_pos.y)),
+        (DirectedAction::MoveSouth, Position::new(player_pos.x, player_pos.y + 1)),
+        (DirectedAction::MoveWest, Position::new(player_pos.x - 1, player_pos.y)),
+    ];
+
+    for (action, new_pos) in actions {
+        // Only consider walkable positions
+        if !world.is_walkable(&new_pos, danger_pos) {
+            continue;
         }
-    } else if dy > 0 {
-        DirectedAction::MoveNorth
+
+        let dist = new_pos.distance(&danger_pos);
+        if dist > best_distance {
+            best_distance = dist;
+            best_action = Some(action);
+        }
+    }
+
+    if let Some(action) = best_action {
+        (action, ExecutionStatus::InProgress)
     } else {
-        DirectedAction::MoveSouth
-    };
-    (action, ExecutionStatus::InProgress)
+        // No walkable move found that increases distance - stay in place
+        (DirectedAction::None, ExecutionStatus::Complete)
+    }
 }
