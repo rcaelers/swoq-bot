@@ -101,7 +101,25 @@ impl GOAPActionTrait for HuntEnemyAction {
             return execute_move_to(world, player_index, closest_potential, execution_state);
         }
 
-        // No enemies or potential locations reachable - action complete
+        // No potential locations - pick a random walkable location
+        use rand::Rng;
+        let mut rng = rand::rng();
+        for _ in 0..100 {
+            let random_x = rng.random_range(0..world.map.width);
+            let random_y = rng.random_range(0..world.map.height);
+            let random_pos = crate::infra::Position::new(random_x, random_y);
+
+            if world.is_walkable(&random_pos, random_pos) {
+                tracing::debug!(
+                    "HuntEnemy: Player {} moving to random location at {:?}",
+                    player_index,
+                    random_pos
+                );
+                return execute_move_to(world, player_index, random_pos, execution_state);
+            }
+        }
+
+        // No walkable random location found - action complete
         tracing::debug!("HuntEnemy: Player {} has no valid targets, completing", player_index);
         (DirectedAction::None, ExecutionStatus::Complete)
     }
@@ -227,26 +245,15 @@ impl GOAPActionTrait for HuntEnemyAction {
             return actions;
         }
 
-        // Only generate if there are enemies or potential locations to hunt
-        if !world.enemies.is_empty() || !world.potential_enemy_locations.is_empty() {
-            let action = HuntEnemyAction {};
-            if action.precondition(state, player_index) {
-                tracing::debug!(
-                    "HuntEnemy::generate - Player {} generated HuntEnemy action",
-                    player_index
-                );
-                actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
-            } else {
-                tracing::debug!(
-                    "HuntEnemy::generate - Player {} precondition failed",
-                    player_index
-                );
-            }
-        } else {
+        let action = HuntEnemyAction {};
+        if action.precondition(state, player_index) {
             tracing::debug!(
-                "HuntEnemy::generate - Player {} skipped: no enemies or potential locations",
+                "HuntEnemy::generate - Player {} generated HuntEnemy action",
                 player_index
             );
+            actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
+        } else {
+            tracing::debug!("HuntEnemy::generate - Player {} precondition failed", player_index);
         }
 
         actions
