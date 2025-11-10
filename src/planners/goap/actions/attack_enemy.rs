@@ -54,32 +54,37 @@ impl GOAPActionTrait for AttackEnemyAction {
 
         // Find closest enemy in current world state (enemies move!)
         if let Some(closest_enemy_pos) = world.enemies.closest_to(player.position) {
-            let (action, status) = execute_use_adjacent(world, player_index, closest_enemy_pos, execution_state);
-            
+            let (action, status) =
+                execute_use_adjacent(world, player_index, closest_enemy_pos, execution_state);
+
             // If we just performed a 'use' action (attacked), store the enemy position
-            if matches!(status, ExecutionStatus::Complete) && !matches!(action, DirectedAction::None) {
+            if matches!(status, ExecutionStatus::Complete)
+                && !matches!(action, DirectedAction::None)
+            {
                 if execution_state.enemy_under_attack.is_none() {
                     // First attack - store enemy position
                     execution_state.enemy_under_attack = Some(closest_enemy_pos);
-                    return (action, ExecutionStatus::InProgress);
+                    (action, ExecutionStatus::InProgress)
                 } else {
                     // Subsequent attacks - check if enemy still exists at stored position
-                    let enemy_still_alive = world.enemies.get_positions()
+                    let enemy_still_alive = world
+                        .enemies
+                        .get_positions()
                         .iter()
                         .any(|pos| Some(*pos) == execution_state.enemy_under_attack);
-                    
+
                     if enemy_still_alive {
                         // Enemy still alive, continue attacking
-                        return (action, ExecutionStatus::InProgress);
+                        (action, ExecutionStatus::InProgress)
                     } else {
                         // Enemy is dead (not at stored position anymore)
                         execution_state.enemy_under_attack = None;
-                        return (action, ExecutionStatus::Complete);
+                        (action, ExecutionStatus::Complete)
                     }
                 }
             } else {
                 // Still moving towards enemy
-                return (action, status);
+                (action, status)
             }
         } else {
             // No enemies - action complete
