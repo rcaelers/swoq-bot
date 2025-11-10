@@ -74,24 +74,27 @@ impl Game {
             self.check_level(&game);
             self.update_world(&game.state);
 
-            let actions = self.plan_and_execute();
-            let action_result = self.act_goap(&mut game, actions).await?;
+            if let Some(actions) = self.plan_and_execute() {
+                let action_result = self.act_goap(&mut game, actions).await?;
 
-            // Log slow ticks
-            let tick_duration = tick_start.elapsed();
-            if tick_duration.as_millis() > 100 {
-                tracing::debug!(
-                    "⚠️  Tick {} took {:.2}ms result: {:?})",
-                    game.state.tick,
-                    tick_duration.as_secs_f64() * 1000.0,
-                    action_result
-                );
-            }
+                // Log slow ticks
+                let tick_duration = tick_start.elapsed();
+                if tick_duration.as_millis() > 100 {
+                    tracing::debug!(
+                        "⚠️  Tick {} took {:.2}ms result: {:?})",
+                        game.state.tick,
+                        tick_duration.as_secs_f64() * 1000.0,
+                        action_result
+                    );
+                }
 
-            if action_result != swoq_interface::ActResult::Ok {
-                tracing::debug!("\n❌ Action failed with result: {:?}", action_result);
-                tracing::debug!("🛑 Stopping game due to action error");
-                break;
+                if action_result != swoq_interface::ActResult::Ok {
+                    tracing::debug!("\n❌ Action failed with result: {:?}", action_result);
+                    tracing::debug!("🛑 Stopping game due to action error");
+                    break;
+                }
+            } else {
+                tracing::debug!("Skipping tick {} - no executable actions, will replan next iteration", game.state.tick);
             }
         }
 
@@ -115,7 +118,7 @@ impl Game {
         Ok(())
     }
 
-    fn plan_and_execute(&mut self) -> Vec<DirectedAction> {
+    fn plan_and_execute(&mut self) -> Option<Vec<DirectedAction>> {
         // Initialize or update planner state
         self.planner.update_state(&self.world);
 

@@ -580,7 +580,7 @@ impl WorldState {
 
     /// Get the actual path distance between two positions, returns None if unreachable
     pub fn path_distance(&self, from: Position, to: Position) -> Option<i32> {
-        self.find_path(from, to).map(|path| path.len() as i32)
+        self.find_path(from, to).map(|path| path.len() as i32 - 1)
     }
 
     /// Get the path distance to an enemy position.
@@ -606,7 +606,8 @@ impl WorldState {
                 },
                 |_pos, _goal_pos, _tick| 1, // Uniform cost - no enemy avoidance
             );
-            path.map(|p| p.len() as i32).unwrap_or(i32::MAX)
+            // Path includes start position, so subtract 1 to get distance
+            path.map(|p| p.len() as i32 - 1).unwrap_or(i32::MAX)
         } else {
             manhattan_dist
         }
@@ -821,9 +822,10 @@ impl WorldState {
                 | Tile::Sword
                 | Tile::Health
                 | Tile::Exit
+                | Tile::Enemy
                 | Tile::Unknown,
             ) => {
-                // Allow walking on the destination key, avoid all others
+                // Allow walking on the destination key/item/enemy, avoid all others
                 *pos == goal
             }
             None => *pos == goal,

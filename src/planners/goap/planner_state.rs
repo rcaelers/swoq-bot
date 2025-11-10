@@ -91,17 +91,39 @@ impl PlannerState {
 
         tracing::info!("Plan complete: {}", plan_complete);
         // Check for emergency: enemy too close
+        // BUT skip emergency check if player is currently executing HuntEnemy action
         let mut is_emergency = false;
         for (player_id, player) in self.world.players.iter().enumerate() {
             tracing::debug!("Checking player {} at position {:?}", player_id, player.position);
             if !player.is_active {
                 continue;
             }
-            tracing::debug!(
-                "Player {} is active with health {}",
-                player_id,
-                player.health
-            );
+
+            // Skip emergency check if currently hunting or attacking enemies
+            let player_state = &self.player_states[player_id];
+            tracing::debug!("Player {} current plan: {:?}", player_id, player_state.plan_sequence);
+            if !player_state.plan_sequence.is_empty() {
+                tracing::debug!(
+                    "Player {} current action index: {}",
+                    player_id,
+                    player_state.current_action_index
+                );
+                let current_action = &player_state.plan_sequence[player_state.current_action_index];
+                tracing::debug!("Player {} current action: {}", player_id, current_action.name());
+                // TODO: make more general
+                if current_action.name() == "HuntEnemy"
+                    || current_action.name() == "AttackEnemy"
+                    || current_action.name() == "AvoidEnemy"
+                {
+                    tracing::debug!(
+                        "Player {} is attacking/avoiding enemies, skipping emergency check",
+                        player_id
+                    );
+                    continue;
+                }
+            }
+
+            tracing::debug!("Player {} is active with health {}", player_id, player.health);
             let has_sword = player.has_sword;
             let danger_threshold = if has_sword { 2 } else { 3 };
 

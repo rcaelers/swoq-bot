@@ -311,39 +311,69 @@ impl GOAPPlanner {
             // Generate all candidate actions for this player using the simulated state
             // Each action's generate() function filters by preconditions internally
             let mut candidates: Vec<Box<dyn GOAPActionTrait>> = Vec::new();
-            let explore_count = ExploreAction::generate(&simulated_state, next_player).len();
-            candidates.extend(ExploreAction::generate(&simulated_state, next_player));
-            let key_count = GetKeyAction::generate(&simulated_state, next_player).len();
-            candidates.extend(GetKeyAction::generate(&simulated_state, next_player));
-            let door_count = OpenDoorAction::generate(&simulated_state, next_player).len();
-            candidates.extend(OpenDoorAction::generate(&simulated_state, next_player));
-            let sword_count = PickupSwordAction::generate(&simulated_state, next_player).len();
-            candidates.extend(PickupSwordAction::generate(&simulated_state, next_player));
-            let health_count = PickupHealthAction::generate(&simulated_state, next_player).len();
-            candidates.extend(PickupHealthAction::generate(&simulated_state, next_player));
-            let attack_count = AttackEnemyAction::generate(&simulated_state, next_player).len();
-            candidates.extend(AttackEnemyAction::generate(&simulated_state, next_player));
-            let avoid_count = AvoidEnemyAction::generate(&simulated_state, next_player).len();
-            candidates.extend(AvoidEnemyAction::generate(&simulated_state, next_player));
-            let plate_door_count =
-                PassThroughDoorWithPlateAction::generate(&simulated_state, next_player).len();
-            // candidates
-            //     .extend(PassThroughDoorWithPlateAction::generate(&simulated_state, next_player));
-            let wait_count = WaitOnPlateAction::generate(&simulated_state, next_player).len();
-            // candidates.extend(WaitOnPlateAction::generate(&simulated_state, next_player));
-            let pickup_boulder_count =
-                PickupBoulderAction::generate(&simulated_state, next_player).len();
-            candidates.extend(PickupBoulderAction::generate(&simulated_state, next_player));
-            let drop_boulder_count =
-                DropBoulderAction::generate(&simulated_state, next_player).len();
-            candidates.extend(DropBoulderAction::generate(&simulated_state, next_player));
-            let drop_on_plate_count =
-                DropBoulderOnPlateAction::generate(&simulated_state, next_player).len();
-            candidates.extend(DropBoulderOnPlateAction::generate(&simulated_state, next_player));
-            let touch_plate_count = TouchPlateAction::generate(&simulated_state, next_player).len();
-            candidates.extend(TouchPlateAction::generate(&simulated_state, next_player));
-            let exit_count = ReachExitAction::generate(&simulated_state, next_player).len();
-            candidates.extend(ReachExitAction::generate(&simulated_state, next_player));
+
+            let explore_actions = ExploreAction::generate(&simulated_state, next_player);
+            let explore_count = explore_actions.len();
+            candidates.extend(explore_actions);
+
+            let key_actions = GetKeyAction::generate(&simulated_state, next_player);
+            let key_count = key_actions.len();
+            candidates.extend(key_actions);
+
+            let door_actions = OpenDoorAction::generate(&simulated_state, next_player);
+            let door_count = door_actions.len();
+            candidates.extend(door_actions);
+
+            let sword_actions = PickupSwordAction::generate(&simulated_state, next_player);
+            let sword_count = sword_actions.len();
+            candidates.extend(sword_actions);
+
+            let health_actions = PickupHealthAction::generate(&simulated_state, next_player);
+            let health_count = health_actions.len();
+            candidates.extend(health_actions);
+
+            let attack_actions = AttackEnemyAction::generate(&simulated_state, next_player);
+            let attack_count = attack_actions.len();
+            candidates.extend(attack_actions);
+
+            let hunt_actions = HuntEnemyAction::generate(&simulated_state, next_player);
+            let hunt_count = hunt_actions.len();
+            candidates.extend(hunt_actions);
+
+            let avoid_actions = AvoidEnemyAction::generate(&simulated_state, next_player);
+            let avoid_count = avoid_actions.len();
+            candidates.extend(avoid_actions);
+
+            let plate_door_actions =
+                PassThroughDoorWithPlateAction::generate(&simulated_state, next_player);
+            let plate_door_count = plate_door_actions.len();
+            // candidates.extend(plate_door_actions);
+
+            let wait_actions = WaitOnPlateAction::generate(&simulated_state, next_player);
+            let wait_count = wait_actions.len();
+            // candidates.extend(wait_actions);
+
+            let pickup_boulder_actions =
+                PickupBoulderAction::generate(&simulated_state, next_player);
+            let pickup_boulder_count = pickup_boulder_actions.len();
+            candidates.extend(pickup_boulder_actions);
+
+            let drop_boulder_actions = DropBoulderAction::generate(&simulated_state, next_player);
+            let drop_boulder_count = drop_boulder_actions.len();
+            candidates.extend(drop_boulder_actions);
+
+            let drop_on_plate_actions =
+                DropBoulderOnPlateAction::generate(&simulated_state, next_player);
+            let drop_on_plate_count = drop_on_plate_actions.len();
+            candidates.extend(drop_on_plate_actions);
+
+            let touch_plate_actions = TouchPlateAction::generate(&simulated_state, next_player);
+            let touch_plate_count = touch_plate_actions.len();
+            candidates.extend(touch_plate_actions);
+
+            let exit_actions = ReachExitAction::generate(&simulated_state, next_player);
+            let exit_count = exit_actions.len();
+            candidates.extend(exit_actions);
 
             if !candidates.is_empty() {
                 tracing::debug!(
@@ -355,6 +385,7 @@ impl GOAPPlanner {
                     pickup_sword = sword_count,
                     pickup_health = health_count,
                     attack = attack_count,
+                    hunt = hunt_count,
                     avoid = avoid_count,
                     plate_door = plate_door_count,
                     wait = wait_count,

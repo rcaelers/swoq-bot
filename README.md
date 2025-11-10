@@ -9,27 +9,12 @@ Copyright (c) 2025 Ralph Schiedon.
 ## TODO
 
 - [ ] UI improvements
-  - [x] Show pathfinder routes
   - [ ] Game should not start before visualizer is ready
-  - [x] Show logging pane
-- [ ] Refactoring vibe coded parts
-  - [x] integrate_surroundings
-  - [ ] generalize items handling (health, keys, swords)
-  - [ ] Simplify CoopPressurePlateDoorStrategy
-  - [ ] ...
-- [x] Level 12: 2 Player mode
-- [ ] AI strategies
-- [ ] Strategy improvements / bug fixes
-  - [x] incorrect enemies present in HuntEnemyWithSwordStrategy
-  - [x] Hang when trying to go through door
-  - [ ] flee enemy sometimes fails
-  - [ ] Don't attack enemy if not needed
-  - [ ] Enemy in range check should use pathfinder
-  - [ ] Unexplored frontier: add unknown->known transitions
-  - [x] If no further goals, pick random explored location in search for enemies
-  - [ ] Support states in strategies
-  - [ ] Don't step on pressure plates when other player tries to open the door with key (L16)
-  
+- [ ] GOAP Planner improvements
+  - [ ] Refactor emergency handling/exceptions
+  - [ ] Recover from emergencies (e.g. when inventory is not empty)
+  - [ ] L12+
+
 ## License
 
 MIT

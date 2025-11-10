@@ -98,6 +98,36 @@ pub fn evaluate_state(state: &PlannerState, initial_state: &PlannerState) -> f32
         score += new_swords as f32 * 5.0; // Reward for discovering swords
     }
 
+    // Goal: Pick up swords (equipping players for combat)
+    let swords_picked_up = state
+        .world
+        .players
+        .iter()
+        .filter(|p| p.has_sword)
+        .count() as i32
+        - initial_state
+            .world
+            .players
+            .iter()
+            .filter(|p| p.has_sword)
+            .count() as i32;
+    if swords_picked_up > 0 {
+        score += swords_picked_up as f32 * 15.0; // Reward for picking up swords
+    }
+
+    // Goal: Increase health (healing players)
+    let total_health_gained: i32 = state
+        .world
+        .players
+        .iter()
+        .zip(initial_state.world.players.iter())
+        .map(|(current, initial)| current.health - initial.health)
+        .filter(|&delta| delta > 0)
+        .sum();
+    if total_health_gained > 0 {
+        score += total_health_gained as f32 * 3.0; // Reward for health gained (3 per HP)
+    }
+
     // Small reward for idle activity (touching plates when nothing else to do)
     // Only counts once per color
     let new_plate_colors_touched = state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;

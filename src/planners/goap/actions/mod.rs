@@ -5,6 +5,7 @@ mod drop_boulder_on_plate;
 mod explore;
 mod get_key;
 pub mod helpers;
+mod hunt_enemy;
 mod open_door;
 mod pass_through_door_with_plate;
 mod pickup_boulder;
@@ -20,6 +21,7 @@ pub use drop_boulder::DropBoulderAction;
 pub use drop_boulder_on_plate::DropBoulderOnPlateAction;
 pub use explore::ExploreAction;
 pub use get_key::GetKeyAction;
+pub use hunt_enemy::HuntEnemyAction;
 pub use open_door::OpenDoorAction;
 pub use pass_through_door_with_plate::PassThroughDoorWithPlateAction;
 pub use pickup_boulder::PickupBoulderAction;
@@ -106,6 +108,7 @@ pub struct ActionExecutionState {
     pub exploration_target: Option<Position>,
     pub initial_object_counts: Option<ObjectCounts>,
     pub wait_ticks: u32,
+    pub enemy_under_attack: Option<Position>,
 }
 
 #[derive(Debug, Clone, Default)]
