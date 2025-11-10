@@ -94,7 +94,10 @@ impl Game {
                     break;
                 }
             } else {
-                tracing::debug!("Skipping tick {} - no executable actions, will replan next iteration", game.state.tick);
+                tracing::debug!(
+                    "Skipping tick {} - no executable actions, will replan next iteration",
+                    game.state.tick
+                );
             }
         }
 

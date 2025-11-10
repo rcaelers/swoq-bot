@@ -16,7 +16,7 @@ impl GOAPActionTrait for ReachExitAction {
     fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
-        
+
         // Player must have empty inventory and path reachability validated during generation
         if player.inventory != crate::swoq_interface::Inventory::None
             || world.exit_position != Some(self.exit_pos)
@@ -28,9 +28,12 @@ impl GOAPActionTrait for ReachExitAction {
         if world.players.len() == 2 {
             let other_player_index = 1 - player_index;
             let other_player = &world.players[other_player_index];
-            
+
             // Check if other player can reach the exit
-            if world.find_path_for_player(other_player_index, other_player.position, self.exit_pos).is_none() {
+            if world
+                .find_path_for_player(other_player_index, other_player.position, self.exit_pos)
+                .is_none()
+            {
                 return false;
             }
         }

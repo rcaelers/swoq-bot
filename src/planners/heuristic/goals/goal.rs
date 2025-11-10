@@ -1,3 +1,4 @@
+use crate::infra::{Color, Position};
 use crate::planners::heuristic::goals::avoid_enemy::AvoidEnemyGoal;
 use crate::planners::heuristic::goals::clear_path_on_goal_change;
 use crate::planners::heuristic::goals::drop_boulder::DropBoulderGoal;
@@ -15,7 +16,6 @@ use crate::planners::heuristic::goals::reach_exit::ReachExitGoal;
 use crate::planners::heuristic::goals::wait_on_tile::WaitOnTileGoal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::{Color, Position};
 
 /// Trait for executing goals
 pub trait ExecuteGoal {

@@ -25,6 +25,12 @@ impl GOAPActionTrait for HuntEnemyAction {
             return false;
         }
 
+        // All doors must be openable with discovered items (keys or pressure plates)
+        // This ensures we don't hunt enemies when there are inaccessible areas
+        if !world.all_doors_can_be_opened_with_discovered_items() {
+            return false;
+        }
+
         // Don't hunt if closest enemy is already in attack range (≤3 tiles)
         if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
             let dist = world.path_distance_to_enemy(player.position, closest_enemy);
@@ -102,11 +108,14 @@ impl GOAPActionTrait for HuntEnemyAction {
         }
 
         // No potential locations - pick a random walkable location
-        use rand::Rng;
-        let mut rng = rand::rng();
-        for _ in 0..100 {
-            let random_x = rng.random_range(0..world.map.width);
-            let random_y = rng.random_range(0..world.map.height);
+        // Use deterministic pseudo-random based on tick (same approach as world_state.rs)
+        for attempt in 0..100 {
+            let seed = (world.tick as usize)
+                .wrapping_mul(1103515245)
+                .wrapping_add(12345)
+                .wrapping_add(attempt);
+            let random_x = ((seed % world.map.width as usize) as i32);
+            let random_y = ((seed.wrapping_mul(31) % world.map.height as usize) as i32);
             let random_pos = crate::infra::Position::new(random_x, random_y);
 
             if world.is_walkable(&random_pos, random_pos) {
@@ -216,13 +225,14 @@ impl GOAPActionTrait for HuntEnemyAction {
         let player = &world.players[player_index];
 
         tracing::debug!(
-            "HuntEnemy::generate - Player {}: frontier_empty={}, has_sword={}, health={}, enemies={}, potential_locs={}",
+            "HuntEnemy::generate - Player {}: frontier_empty={}, has_sword={}, health={}, enemies={}, potential_locs={}, all_doors_openable={}",
             player_index,
             player.unexplored_frontier.is_empty(),
             player.has_sword,
             player.health,
             world.enemies.get_positions().len(),
-            world.potential_enemy_locations.len()
+            world.potential_enemy_locations.len(),
+            world.all_doors_can_be_opened_with_discovered_items()
         );
 
         // Only generate when fully explored

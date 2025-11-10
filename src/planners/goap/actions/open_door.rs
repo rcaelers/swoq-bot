@@ -71,7 +71,9 @@ impl GOAPActionTrait for OpenDoorAction {
         for color in [Color::Red, Color::Green, Color::Blue] {
             if let Some(door_positions) = world.doors.get_positions(color) {
                 for door_pos in door_positions {
-                    if let Some(path) = world.find_path_for_player(player_index, player.position, *door_pos) {
+                    if let Some(path) =
+                        world.find_path_for_player(player_index, player.position, *door_pos)
+                    {
                         let action = OpenDoorAction {
                             color,
                             door_pos: *door_pos,

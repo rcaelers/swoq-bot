@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use crate::swoq_interface::Inventory;
 use crate::infra::Position;
+use crate::swoq_interface::Inventory;
 
 #[derive(Debug, Clone)]
 pub struct PlayerState {

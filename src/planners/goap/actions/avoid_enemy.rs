@@ -26,12 +26,12 @@ impl GOAPActionTrait for AvoidEnemyAction {
         // Find closest enemy in current world state (enemies move!)
         if let Some(closest_enemy_pos) = world.enemies.closest_to(player.position) {
             let distance = world.path_distance_to_enemy(player.position, closest_enemy_pos);
-            
+
             // Continue avoiding until enemy is at least 3 tiles away
             if distance >= 3 {
                 return (DirectedAction::None, ExecutionStatus::Complete);
             }
-            
+
             let (action, _status) = execute_avoid(world, player_index, closest_enemy_pos);
             (action, ExecutionStatus::InProgress)
         } else {

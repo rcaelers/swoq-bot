@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use tracing::debug;
 
+use crate::infra::{Color, Position};
 use crate::planners::heuristic::goals::Goal;
+use crate::planners::heuristic::planner_state::PlannerState;
 use crate::planners::heuristic::strategies::planner::StrategyPlanner;
 use crate::planners::heuristic::strategies::planner::{SelectGoal, StrategyType};
-use crate::infra::{Color, Position};
-use crate::planners::heuristic::planner_state::PlannerState;
 
 /// Helper struct to hold pathfinding results for a single player
 struct PlayerReachability {
@@ -116,8 +116,10 @@ impl CooperativeDoorPassageStrategy {
                 state.player_states[player_index].previous_goal.as_ref()
             {
                 let other_player_index = 1 - player_index;
-                if let Some(Goal::PassThroughDoor(c, door_pos, target_pos)) =
-                    state.player_states[other_player_index].previous_goal.as_ref()
+                if let Some(Goal::PassThroughDoor(c, door_pos, target_pos)) = state.player_states
+                    [other_player_index]
+                    .previous_goal
+                    .as_ref()
                     && c == color
                 {
                     return Some((
@@ -165,21 +167,24 @@ impl CooperativeDoorPassageStrategy {
                             None
                         }
                     });
-                let passer_color =
-                    state.player_states[passing_idx]
-                        .previous_goal
-                        .as_ref()
-                        .and_then(|g| {
-                            if let Goal::PassThroughDoor(c, _, _) = g {
-                                Some(c)
-                            } else {
-                                None
-                            }
-                        });
+                let passer_color = state.player_states[passing_idx]
+                    .previous_goal
+                    .as_ref()
+                    .and_then(|g| {
+                        if let Goal::PassThroughDoor(c, _, _) = g {
+                            Some(c)
+                        } else {
+                            None
+                        }
+                    });
                 let color = waiter_color.or(passer_color).copied().unwrap_or(Color::Red);
 
                 // Only assign WaitOnTile if waiter doesn't have an emergency goal (e.g., attack/flee)
-                if !state.player_states[waiter_idx].current_goal.as_ref().is_some_and(|g| matches!(g, Goal::KillEnemy(_) | Goal::AvoidEnemy(_))) {
+                if !state.player_states[waiter_idx]
+                    .current_goal
+                    .as_ref()
+                    .is_some_and(|g| matches!(g, Goal::KillEnemy(_) | Goal::AvoidEnemy(_)))
+                {
                     goals[waiter_idx] = Some(Goal::WaitOnTile(color, plate_pos));
                 }
                 goals[passing_idx] = Some(Goal::PassThroughDoor(color, door_pos, target_pos));
@@ -324,15 +329,12 @@ impl CooperativeDoorPassageStrategy {
 
         // Check each neighbor of the door
         let door_neighbors = door_pos.neighbors();
-        debug!(
-            "player_can_reach_plate_and_door: door neighbors: {:?}",
-            door_neighbors
-        );
+        debug!("player_can_reach_plate_and_door: door neighbors: {:?}", door_neighbors);
 
         let path_to_door = door_pos.neighbors().iter().find_map(|&neighbor| {
             let tile = state.world.map.get(&neighbor);
             // Consider a neighbor valid if it's empty OR if it's the player's current position
-            let is_valid = matches!(tile, Some(crate::swoq_interface::Tile::Empty)) 
+            let is_valid = matches!(tile, Some(crate::swoq_interface::Tile::Empty))
                 || neighbor == player_pos;
             debug!(
                 "player_can_reach_plate_and_door: checking neighbor {:?}, tile={:?}, is_valid={}, is_player_pos={}",
@@ -391,8 +393,14 @@ impl CooperativeDoorPassageStrategy {
     }
 
     /// Check if a specific player can already reach the target position
-    fn is_target_already_reachable(&self, state: &PlannerState, player_index: usize, target_pos: Position) -> bool {
-        state.world
+    fn is_target_already_reachable(
+        &self,
+        state: &PlannerState,
+        player_index: usize,
+        target_pos: Position,
+    ) -> bool {
+        state
+            .world
             .find_path(state.world.players[player_index].position, target_pos)
             .is_some()
     }
@@ -452,7 +460,12 @@ impl CooperativeDoorPassageStrategy {
             debug!("CoopPressurePlateDoorStrategy: Checking {:?} color", color);
 
             // Skip if any player has a key for this color
-            if state.world.players.iter().any(|p| state.world.has_key(p, color)) {
+            if state
+                .world
+                .players
+                .iter()
+                .any(|p| state.world.has_key(p, color))
+            {
                 debug!("CoopPressurePlateDoorStrategy: Player has {:?} key, skipping", color);
                 continue;
             }
@@ -565,7 +578,8 @@ impl CooperativeDoorPassageStrategy {
                         if self.is_target_already_reachable(state, passer_idx, target_pos) {
                             debug!(
                                 "CoopPressurePlateDoorStrategy: Target {:?} is already reachable by P{}, no cooperation needed",
-                                target_pos, passer_idx + 1
+                                target_pos,
+                                passer_idx + 1
                             );
                             continue;
                         }

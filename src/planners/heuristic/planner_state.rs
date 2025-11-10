@@ -66,7 +66,7 @@ impl PlannerState {
     /// Detect if players are swapping goals
     /// Returns true if the last 4 goal pairs show a swap pattern:
     /// - Goals at t and t-2 are swapped versions of each other
-    /// 
+    ///
     /// Also returns the 4 goal pairs in chronological order for logging
     pub fn is_goal_swapping(&self) -> (bool, GoalPairHistory) {
         // Get goal pairs in chronological order (oldest to newest)
@@ -75,20 +75,20 @@ impl PlannerState {
         } else {
             self.goal_pair_index - 1
         };
-        
+
         let t = latest_idx;
         let t_minus_1 = if t == 0 { 3 } else { t - 1 };
         let t_minus_2 = if t_minus_1 == 0 { 3 } else { t_minus_1 - 1 };
         let t_minus_3 = if t_minus_2 == 0 { 3 } else { t_minus_2 - 1 };
-        
+
         let goals_t = &self.goal_pair_history[t];
         let goals_t1 = &self.goal_pair_history[t_minus_1];
         let goals_t2 = &self.goal_pair_history[t_minus_2];
         let goals_t3 = &self.goal_pair_history[t_minus_3];
-        
-        // Check for swap pattern: goals at t match goals at t-2 swapped, 
+
+        // Check for swap pattern: goals at t match goals at t-2 swapped,
         // and goals at t-1 match goals at t-3 swapped
-        let is_swapping = 
+        let is_swapping =
             // t and t-2 are swaps
             goals_t.0 == goals_t2.1 && goals_t.1 == goals_t2.0 &&
             // t-1 and t-3 are swaps
@@ -97,13 +97,16 @@ impl PlannerState {
             goals_t.0.is_some() && goals_t.1.is_some() &&
             // Make sure players don't have the same goal (no swapping if both have same goal)
             goals_t.0 != goals_t.1;
-        
+
         // Return in chronological order (t-3, t-2, t-1, t)
-        (is_swapping, [
-            goals_t3.clone(),
-            goals_t2.clone(),
-            goals_t1.clone(),
-            goals_t.clone(),
-        ])
+        (
+            is_swapping,
+            [
+                goals_t3.clone(),
+                goals_t2.clone(),
+                goals_t1.clone(),
+                goals_t.clone(),
+            ],
+        )
     }
 }

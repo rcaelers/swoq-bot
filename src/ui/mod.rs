@@ -1,3 +1,3 @@
 mod visualizer;
 
-pub use visualizer::{run_visualizer, GameStateSnapshot, LogColor, LogMessage};
+pub use visualizer::{GameStateSnapshot, LogColor, LogMessage, run_visualizer};

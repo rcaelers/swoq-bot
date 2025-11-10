@@ -54,4 +54,3 @@ pub fn use_direction(from: Position, to: Position) -> DirectedAction {
         DirectedAction::UseWest
     }
 }
-

@@ -45,7 +45,9 @@ impl PickupBoulderAction {
         while let Some((current_pos, distance)) = queue.pop_front() {
             // Check neighbors for boulders
             for neighbor in world.valid_neighbors(&current_pos) {
-                if world.boulders.contains(&neighbor) && !found_boulder_positions.contains(&neighbor) {
+                if world.boulders.contains(&neighbor)
+                    && !found_boulder_positions.contains(&neighbor)
+                {
                     found_boulder_positions.insert(neighbor);
                     let is_unexplored = !world.boulders.has_moved(&neighbor);
                     let on_plate = plate_positions.contains(&neighbor);
@@ -144,12 +146,12 @@ impl GOAPActionTrait for PickupBoulderAction {
             .iter()
             .filter(|(_, _, _, is_unexplored, _)| *is_unexplored)
             .collect();
-        
+
         let explored_not_on_plate: Vec<_> = all_boulders
             .iter()
             .filter(|(_, _, _, is_unexplored, on_plate)| !*is_unexplored && !*on_plate)
             .collect();
-        
+
         let explored_on_plate: Vec<_> = all_boulders
             .iter()
             .filter(|(_, _, _, is_unexplored, on_plate)| !*is_unexplored && *on_plate)
@@ -158,7 +160,7 @@ impl GOAPActionTrait for PickupBoulderAction {
         // Decision logic based on priority:
         // 1. If there are unexplored boulders, return closest reachable one
         if !unexplored.is_empty() {
-            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = 
+            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) =
                 unexplored.iter().min_by_key(|(_, _, dist, _, _)| *dist)
             {
                 let action = PickupBoulderAction {
@@ -172,8 +174,9 @@ impl GOAPActionTrait for PickupBoulderAction {
         }
         // 2. If no unexplored, return closest explored boulder not on pressure plate
         else if !explored_not_on_plate.is_empty() {
-            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = 
-                explored_not_on_plate.iter().min_by_key(|(_, _, dist, _, _)| *dist)
+            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = explored_not_on_plate
+                .iter()
+                .min_by_key(|(_, _, dist, _, _)| *dist)
             {
                 let action = PickupBoulderAction {
                     boulder_pos: *boulder_pos,

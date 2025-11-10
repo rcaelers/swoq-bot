@@ -99,12 +99,7 @@ pub fn evaluate_state(state: &PlannerState, initial_state: &PlannerState) -> f32
     }
 
     // Goal: Pick up swords (equipping players for combat)
-    let swords_picked_up = state
-        .world
-        .players
-        .iter()
-        .filter(|p| p.has_sword)
-        .count() as i32
+    let swords_picked_up = state.world.players.iter().filter(|p| p.has_sword).count() as i32
         - initial_state
             .world
             .players
@@ -130,7 +125,8 @@ pub fn evaluate_state(state: &PlannerState, initial_state: &PlannerState) -> f32
 
     // Small reward for idle activity (touching plates when nothing else to do)
     // Only counts once per color
-    let new_plate_colors_touched = state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;
+    let new_plate_colors_touched =
+        state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;
     if new_plate_colors_touched > 0 {
         score += new_plate_colors_touched as f32 * 2.0; // Small reward to encourage idle exploration
     }

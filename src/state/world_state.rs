@@ -578,6 +578,28 @@ impl WorldState {
         self.keys.closest_to(color, player.position)
     }
 
+    /// Check if all doors can be opened with discovered items (keys or pressure plates)
+    /// Returns true if all existing doors either:
+    /// - Have a key location that we know about
+    /// - Have already been opened (via pressure plate with boulder)
+    pub fn all_doors_can_be_opened_with_discovered_items(&self) -> bool {
+        for &color in &[Color::Red, Color::Green, Color::Blue] {
+            // Check if there are any doors of this color
+            if let Some(door_positions) = self.doors.get_positions(color) {
+                if !door_positions.is_empty() {
+                    // There are doors of this color - check if we can open them
+                    // Either we know where the key is, or the door is already opened
+                    let can_open =
+                        self.knows_key_location(color) || self.has_door_been_opened(color);
+                    if !can_open {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
     /// Get the actual path distance between two positions, returns None if unreachable
     pub fn path_distance(&self, from: Position, to: Position) -> Option<i32> {
         self.find_path(from, to).map(|path| path.len() as i32 - 1)

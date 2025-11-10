@@ -16,12 +16,12 @@ impl GOAPActionTrait for PickupHealthAction {
     fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
-        
+
         // Health must exist on map
         if !world.health.get_positions().contains(&self.health_pos) {
             return false;
         }
-        
+
         // In 2-player mode, only allow pickup if this player has <= health than other player
         if world.players.len() == 2 {
             let other_player_index = if player_index == 0 { 1 } else { 0 };
@@ -30,7 +30,7 @@ impl GOAPActionTrait for PickupHealthAction {
                 return false;
             }
         }
-        
+
         true
     }
 
@@ -83,7 +83,9 @@ impl GOAPActionTrait for PickupHealthAction {
         let player = &world.players[player_index];
 
         for health_pos in world.health.get_positions() {
-            if let Some(path) = world.find_path_for_player(player_index, player.position, *health_pos) {
+            if let Some(path) =
+                world.find_path_for_player(player_index, player.position, *health_pos)
+            {
                 let action = PickupHealthAction {
                     health_pos: *health_pos,
                     cached_distance: path.len() as u32,

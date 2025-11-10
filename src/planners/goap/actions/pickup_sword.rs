@@ -58,7 +58,9 @@ impl GOAPActionTrait for PickupSwordAction {
         let player = &world.players[player_index];
 
         for sword_pos in world.swords.get_positions() {
-            if let Some(path) = world.find_path_for_player(player_index, player.position, *sword_pos) {
+            if let Some(path) =
+                world.find_path_for_player(player_index, player.position, *sword_pos)
+            {
                 let action = PickupSwordAction {
                     sword_pos: *sword_pos,
                     cached_distance: path.len() as u32,

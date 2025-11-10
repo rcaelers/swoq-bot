@@ -90,17 +90,19 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
                 for &plate_pos in plate_positions {
                     // Find the closest reachable adjacent position
                     let mut best_option: Option<(Position, u32)> = None;
-                    
+
                     for &adj in plate_pos.neighbors().iter() {
                         if world.is_walkable(&adj, adj)
-                            && let Some(path) = world.find_path_for_player(player_index, player.position, adj) {
-                                let distance = path.len() as u32;
-                                if best_option.is_none() || distance < best_option.unwrap().1 {
-                                    best_option = Some((adj, distance));
-                                }
+                            && let Some(path) =
+                                world.find_path_for_player(player_index, player.position, adj)
+                        {
+                            let distance = path.len() as u32;
+                            if best_option.is_none() || distance < best_option.unwrap().1 {
+                                best_option = Some((adj, distance));
                             }
+                        }
                     }
-                    
+
                     if let Some((target_adjacent_pos, cached_distance)) = best_option {
                         let action = DropBoulderOnPlateAction {
                             plate_pos,

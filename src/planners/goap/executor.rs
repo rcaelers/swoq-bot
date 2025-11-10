@@ -13,7 +13,11 @@ impl GOAPExecutor {
 
     /// Execute current plans for all players
     /// Returns Some(actions) if there are executable actions, None if plans exhausted
-    pub fn execute(&self, state: &mut PlannerState, world: &mut WorldState) -> Option<Vec<DirectedAction>> {
+    pub fn execute(
+        &self,
+        state: &mut PlannerState,
+        world: &mut WorldState,
+    ) -> Option<Vec<DirectedAction>> {
         let mut actions = Vec::new();
         let mut has_executable_action = false;
 

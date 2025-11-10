@@ -1,4 +1,4 @@
-use crate::infra::{use_direction, Position};
+use crate::infra::{Position, use_direction};
 use crate::planners::goap::planner_state::PlannerState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory, Tile};
@@ -111,7 +111,11 @@ impl GOAPActionTrait for DropBoulderAction {
 
 /// Check if placing a boulder at this position would block critical paths
 /// Simple rule: all empty neighbors of the boulder position should remain reachable from each other
-fn would_block_critical_path(world: &WorldState, boulder_pos: Position, _player_index: usize) -> bool {
+fn would_block_critical_path(
+    world: &WorldState,
+    boulder_pos: Position,
+    _player_index: usize,
+) -> bool {
     // Find all empty neighbors of the boulder position
     let empty_neighbors: Vec<Position> = boulder_pos
         .neighbors()
@@ -133,7 +137,7 @@ fn would_block_critical_path(world: &WorldState, boulder_pos: Position, _player_
         for j in (i + 1)..empty_neighbors.len() {
             let from = empty_neighbors[i];
             let to = empty_neighbors[j];
-            
+
             // If these neighbors were connected before but not after, it blocks
             if world.find_path(from, to).is_some() && test_world.find_path(from, to).is_none() {
                 return true;

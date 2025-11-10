@@ -1,5 +1,5 @@
-use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::infra::path_to_action;
+use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::planners::heuristic::goals::validate_destination;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
