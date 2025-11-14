@@ -13,6 +13,8 @@ Copyright (c) 2025 Ralph Schiedon.
 - [ ] GOAP Planner improvements
   - [ ] Refactor emergency handling/exceptions
   - [ ] Recover from emergencies (e.g. when inventory is not empty)
+  - [ ] Investigate planning hiccups (e.g. when boulder is near enemy)
+  - [ ] Add random explore to hunt enemies
   - [ ] L12+
 
 ## License

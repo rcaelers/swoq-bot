@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position, use_direction};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -15,7 +15,7 @@ pub struct DropBoulderOnPlateAction {
 }
 
 impl GOAPActionTrait for DropBoulderOnPlateAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -28,7 +28,7 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
                 .is_some_and(|positions| positions.contains(&self.plate_pos))
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         // Drop the boulder
         state.world.players[player_index].inventory = Inventory::None;
         // Place boulder on pressure plate
@@ -62,11 +62,11 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         execute_move_to(world, player_index, self.target_adjacent_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         1.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 for dropping
     }
 
@@ -74,7 +74,7 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         "DropBoulderOnPlate"
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

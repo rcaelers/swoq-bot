@@ -302,8 +302,11 @@ impl WorldState {
                 (Some(Tile::Empty), Tile::Unknown) => false,
                 // Update Unknown with Unknown (refresh fog of war)
                 (Some(Tile::Unknown), Tile::Unknown) => true,
-                // Update Player position with Unknown (player has moved)
-                (Some(Tile::Player), Tile::Unknown) => true,
+                // Player position with Unknown means player has moved - replace with Empty
+                (Some(Tile::Player), Tile::Unknown) => {
+                    self.map.insert(tile_position, Tile::Empty);
+                    false
+                }
                 // Update Enemy position with Unknown (enemy has moved) - enemies are temporary
                 (Some(_), Tile::Unknown) => false,
                 // Always update with concrete information
@@ -576,6 +579,38 @@ impl WorldState {
 
     pub fn closest_key(&self, player: &PlayerState, color: Color) -> Option<Position> {
         self.keys.closest_to(color, player.position)
+    }
+
+    /// Check if any door can be opened with discovered keys or pressure plates
+    /// Returns true if there's at least one door that can be opened with:
+    /// - A key whose location we know, OR
+    /// - A pressure plate + available boulder
+    pub fn can_any_door_be_opened(&self) -> bool {
+        use crate::infra::Color;
+        
+        for color in [Color::Red, Color::Green, Color::Blue] {
+            // Check if there are doors of this color
+            if let Some(_door_positions) = self.doors.get_positions(color) {
+                // Check if we know where a key of this color is
+                if self.knows_key_location(color) {
+                    return true;
+                }
+                
+                // Check if we have a pressure plate of this color and available boulders
+                if self.pressure_plates.has_color(color) {
+                    // Check if we have any boulders not already on plates
+                    let boulders_on_plates = self.get_boulders_on_plates();
+                    let total_boulders = self.boulders.len();
+                    let boulders_used: usize = boulders_on_plates.values().map(|v| v.len()).sum();
+                    
+                    if total_boulders > boulders_used {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        false
     }
 
     /// Get the actual path distance between two positions, returns None if unreachable

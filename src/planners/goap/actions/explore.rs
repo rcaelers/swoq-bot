@@ -1,5 +1,5 @@
 use crate::planners::goap::actions::helpers::execute_move_to;
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -7,8 +7,7 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 
 #[derive(Debug, Clone)]
 pub struct ExploreAction {
-    pub cached_nearest_frontier: crate::infra::Position, // Nearest unexplored frontier tile
-    pub cached_distance: u32,                            // Distance to nearest frontier
+    pub cached_distance: u32, // Distance to nearest frontier
 }
 
 impl ExploreAction {
@@ -49,13 +48,13 @@ impl ExploreAction {
 }
 
 impl GOAPActionTrait for ExploreAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         !state.world.players[player_index]
             .unexplored_frontier
             .is_empty()
     }
 
-    fn effect(&self, _state: &mut PlannerState, _player_index: usize) {
+    fn effect(&self, _state: &mut GameState, _player_index: usize) {
         // No effect during planning simulation
     }
 
@@ -165,11 +164,11 @@ impl GOAPActionTrait for ExploreAction {
         result
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         1.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance
     }
 
@@ -181,7 +180,7 @@ impl GOAPActionTrait for ExploreAction {
         true
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -190,7 +189,6 @@ impl GOAPActionTrait for ExploreAction {
             && let Some(path) = world.find_path_for_player(player_index, player.position, nearest)
         {
             let action = ExploreAction {
-                cached_nearest_frontier: nearest,
                 cached_distance: path.len() as u32,
             };
             if action.precondition(state, player_index) {

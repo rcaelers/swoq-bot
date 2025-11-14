@@ -1,4 +1,4 @@
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -9,11 +9,11 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 pub struct AvoidEnemyAction {}
 
 impl GOAPActionTrait for AvoidEnemyAction {
-    fn precondition(&self, state: &PlannerState, _player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, _player_index: usize) -> bool {
         !state.world.enemies.is_empty()
     }
 
-    fn effect(&self, _state: &mut PlannerState, _player_index: usize) {}
+    fn effect(&self, _state: &mut GameState, _player_index: usize) {}
 
     fn execute(
         &self,
@@ -40,7 +40,7 @@ impl GOAPActionTrait for AvoidEnemyAction {
         }
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
         let player = &state.world.players[player_index];
         let distance = if let Some(closest_enemy) = state.world.enemies.closest_to(player.position)
         {
@@ -53,7 +53,7 @@ impl GOAPActionTrait for AvoidEnemyAction {
         5.0 + distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         // Avoidance is immediate, takes 1 tick to move away
         1
     }
@@ -66,12 +66,16 @@ impl GOAPActionTrait for AvoidEnemyAction {
         true
     }
 
-    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
         // Positive reward for avoiding enemies when vulnerable
         2000.0
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn is_combat_action(&self) -> bool {
+        true
+    }
+
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -13,7 +13,7 @@ pub struct PickupHealthAction {
 }
 
 impl GOAPActionTrait for PickupHealthAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         
@@ -34,7 +34,7 @@ impl GOAPActionTrait for PickupHealthAction {
         true
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         // Heal player +5 (no cap)
         let player = &mut state.world.players[player_index];
         player.health += 5;
@@ -56,11 +56,11 @@ impl GOAPActionTrait for PickupHealthAction {
         execute_move_to(world, player_index, self.health_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         5.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 to pick it up
     }
 
@@ -68,7 +68,7 @@ impl GOAPActionTrait for PickupHealthAction {
         "PickupHealth"
     }
 
-    fn reward(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn reward(&self, state: &GameState, player_index: usize) -> f32 {
         let player = &state.world.players[player_index];
         // Higher reward when health is lower
         // At 5 HP: (1.0 - 0.5) * 20.0 = 10.0
@@ -77,7 +77,7 @@ impl GOAPActionTrait for PickupHealthAction {
         (1.0 - health_ratio) * 20.0
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

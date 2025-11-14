@@ -1,4 +1,4 @@
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -11,7 +11,7 @@ pub struct HuntEnemyAction {
 }
 
 impl GOAPActionTrait for HuntEnemyAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -33,11 +33,15 @@ impl GOAPActionTrait for HuntEnemyAction {
             }
         }
 
-        // Valid if there are enemies or potential locations to hunt
-        !world.enemies.is_empty() || !world.potential_enemy_locations.is_empty()
+        // Only hunt enemies if all doors cannot be opened with discovered items
+        // (no point hunting if we still have doors to open for exploration)
+        if world.can_any_door_be_opened() {
+            return false;
+        }
+        true
     }
 
-    fn effect(&self, _state: &mut PlannerState, _player_index: usize) {
+    fn effect(&self, _state: &mut GameState, _player_index: usize) {
         // Effect doesn't matter for terminal actions - execution handles everything
     }
 
@@ -124,7 +128,7 @@ impl GOAPActionTrait for HuntEnemyAction {
         (DirectedAction::None, ExecutionStatus::Complete)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -155,7 +159,7 @@ impl GOAPActionTrait for HuntEnemyAction {
         base_cost + distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
+    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -184,7 +188,7 @@ impl GOAPActionTrait for HuntEnemyAction {
         "HuntEnemy"
     }
 
-    fn reward(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn reward(&self, state: &GameState, player_index: usize) -> f32 {
         let player = &state.world.players[player_index];
         let world = &state.world;
 
@@ -210,50 +214,28 @@ impl GOAPActionTrait for HuntEnemyAction {
         true
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn is_combat_action(&self) -> bool {
+        true
+    }
+
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];
 
-        tracing::debug!(
-            "HuntEnemy::generate - Player {}: frontier_empty={}, has_sword={}, health={}, enemies={}, potential_locs={}",
-            player_index,
-            player.unexplored_frontier.is_empty(),
-            player.has_sword,
-            player.health,
-            world.enemies.get_positions().len(),
-            world.potential_enemy_locations.len()
-        );
-
         // Only generate when fully explored
         if !player.unexplored_frontier.is_empty() {
-            tracing::debug!(
-                "HuntEnemy::generate - Player {} skipped: still exploring",
-                player_index
-            );
             return actions;
         }
 
         // Only generate hunt actions if player has a sword and health > 6
         if !player.has_sword || player.health <= 6 {
-            tracing::debug!(
-                "HuntEnemy::generate - Player {} skipped: has_sword={}, health={}",
-                player_index,
-                player.has_sword,
-                player.health
-            );
             return actions;
         }
 
         let action = HuntEnemyAction {};
         if action.precondition(state, player_index) {
-            tracing::debug!(
-                "HuntEnemy::generate - Player {} generated HuntEnemy action",
-                player_index
-            );
             actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
-        } else {
-            tracing::debug!("HuntEnemy::generate - Player {} precondition failed", player_index);
         }
 
         actions

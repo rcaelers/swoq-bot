@@ -1,64 +1,141 @@
 use crate::planners::goap::actions::*;
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::planners::goap::state_evaluator::evaluate_state;
 use crate::state::WorldState;
 use std::collections::BinaryHeap;
 use std::time::{Duration, Instant};
 
+pub type PlayerPlan = Vec<Box<dyn GOAPActionTrait>>;
+pub type Plan = Vec<PlayerPlan>;
+
+// Epsilon for floating-point comparison in plan evaluation
+const REWARD_COMPARISON_EPSILON: f32 = 0.001;
+
 /// Node in the A* search tree for GOAP planning
 /// Each node contains plans for ALL players in shared state
 #[derive(Clone)]
-#[allow(dead_code)]
 struct PlanNode {
     /// Action sequences for each player (indexed by player_id)
-    player_sequences: Vec<Vec<Box<dyn GOAPActionTrait>>>,
+    player_sequences: Plan,
 
     /// End time for each player (when their current sequence completes)
     player_end_times: Vec<u32>,
 
-    /// Simulated shared state after applying all actions
-    state: PlannerState,
+    /// Last time point that was fully processed (all players at this time expanded)
+    last_processed_time: u32,
+
+    /// Player that expanded this node
+    #[allow(dead_code)]
+    player: Option<usize>,
+
+    /// State before the most recently added action was applied
+    state_before_last_action: GameState,
+
+    /// State after the most recently added action (computed lazily)
+    state_after_last_action: Option<GameState>,
 
     /// Initial state for comparison (state evaluation)
-    initial_state: PlannerState,
+    initial_state: GameState,
 
     /// Cumulative cost for all players (just action costs, no rewards)
-    g_cost: f32,
-
-    /// Heuristic cost (h_cost): estimated cost to goal
-    h_cost: f32,
-
-    /// Total depth (total number of actions across all players)
-    total_actions: usize,
+    cost: f32,
 
     /// Accumulated action rewards
     action_rewards: f32,
 }
 
 impl PlanNode {
-    fn f_cost(&self) -> f32 {
-        self.g_cost + self.h_cost
+    fn cost(&self) -> f32 {
+        self.cost
     }
 
-    /// Get the next player to plan for (earliest end time)
-    fn next_player_to_plan(&self, num_players: usize) -> Option<usize> {
-        let mut earliest_player = None;
-        let mut earliest_time = u32::MAX;
-
+    /// Get all players at the earliest end time after last_processed_time
+    fn get_idle_players(&self, num_players: usize) -> Vec<usize> {
+        // Find the earliest time at or after last_processed_time
+        let mut earliest_time: Option<u32> = None;
         for player_id in 0..num_players {
-            if self.player_end_times[player_id] < earliest_time {
-                earliest_time = self.player_end_times[player_id];
-                earliest_player = Some(player_id);
+            let player_time = self.player_end_times[player_id];
+            tracing::trace!(
+                player_id = player_id,
+                player_time = player_time,
+                last_processed_time = self.last_processed_time,
+                "Checking player end time"
+            );
+            if player_time >= self.last_processed_time {
+                earliest_time = Some(match earliest_time {
+                    None => player_time,
+                    Some(current) => current.min(player_time),
+                });
             }
         }
 
-        earliest_player
+        // Return all players at that earliest time
+        let Some(earliest) = earliest_time else {
+            return Vec::new();
+        };
+
+        (0..num_players)
+            .filter(|&player_id| self.player_end_times[player_id] == earliest)
+            .collect()
+    }
+
+    fn all_plans(&self) -> Vec<Vec<String>> {
+        self.player_sequences
+            .iter()
+            .map(|seq| seq.iter().map(|a| a.name().to_string()).collect())
+            .collect()
+    }
+
+    fn plan_for_player(&self, idle_player: usize) -> Vec<String> {
+        self.player_sequences[idle_player]
+            .iter()
+            .map(|action| action.name().to_string())
+            .collect()
+    }
+
+    fn total_actions(&self) -> usize {
+        self.player_sequences.iter().map(|seq| seq.len()).sum()
+    }
+
+    fn is_player_terminal(&self, player_id: usize) -> bool {
+        if let Some(last_action) = self.player_sequences[player_id].last() {
+            last_action.is_terminal()
+        } else {
+            false
+        }
+    }
+
+    fn update_end_state(&mut self, player_id: usize) {
+        // Start from existing end state if available, otherwise from before state
+        let mut simulated_state = self
+            .state_after_last_action
+            .clone()
+            .unwrap_or_else(|| self.state_before_last_action.clone());
+
+        let player_sequence = &self.player_sequences[player_id];
+        tracing::trace!(
+            player_id = player_id,
+            player = ?self.player,
+            action_sequence = ?player_sequence.iter().map(|a| a.name()).collect::<Vec<_>>(),
+            "Simulating end state for player"
+        );
+        if !player_sequence.is_empty() {
+            tracing::trace!(
+                player_id = player_id,
+                "applying action {}",
+                player_sequence.last().unwrap().name()
+            );
+            let previous_action = player_sequence.last().unwrap();
+            previous_action.effect(&mut simulated_state, player_id);
+        }
+        self.state_after_last_action = Some(simulated_state);
+        self.player = Some(player_id);
     }
 }
 
 impl PartialEq for PlanNode {
     fn eq(&self, other: &Self) -> bool {
-        self.f_cost() == other.f_cost()
+        self.cost() == other.cost()
     }
 }
 
@@ -72,98 +149,249 @@ impl PartialOrd for PlanNode {
 
 impl Ord for PlanNode {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Reverse ordering for min-heap (lower f_cost is better)
+        // Reverse ordering for min-heap (lower cost is better)
         other
-            .f_cost()
-            .partial_cmp(&self.f_cost())
+            .cost()
+            .partial_cmp(&self.cost())
             .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
 /// GOAP Planner using A* search to find action sequences
-pub struct GOAPPlanner {
-    pub state: Option<PlannerState>,
+pub struct Planner {
     pub max_depth: usize,
     pub timeout: Duration,
+
+    // A* search state
+    open_set: BinaryHeap<PlanNode>,
+    best_plan: Option<PlanNode>,
+    best_state_reward: f32,
+    best_cost: f32,
 }
 
-impl GOAPPlanner {
+impl Planner {
     pub fn new(max_depth: usize, timeout_ms: u64) -> Self {
         Self {
-            state: None,
             max_depth,
             timeout: Duration::from_millis(timeout_ms),
+            open_set: BinaryHeap::new(),
+            best_plan: None,
+            best_state_reward: f32::MIN,
+            best_cost: f32::MAX,
         }
     }
 
-    /// Initialize or update planner state
-    pub fn update_state(&mut self, world: &WorldState) {
-        if let Some(ref mut state) = self.state {
-            state.world = world.clone();
-            state.sync_player_count();
-        } else {
-            self.state = Some(PlannerState::new(world.clone()));
-        }
-    }
+    fn evaluate(&mut self, node: &PlanNode) {
+        if node.total_actions() > 0 {
+            let new_state = node.state_after_last_action.as_ref().unwrap();
 
-    /// Check if replanning is needed
-    /// Returns (needs_replan, is_emergency)
-    pub fn needs_replan(&self) -> (bool, bool) {
-        tracing::info!("GOAP: Check replan in planner");
-        self.state
-            .as_ref()
-            .map_or((true, true), |s| s.needs_replan())
-    }
+            let state_reward = evaluate_state(new_state, &node.initial_state);
+            let total_reward = state_reward + node.action_rewards;
+            tracing::info!(
+                total_actions = node.total_actions(),
+                state_reward = state_reward,
+                action_rewards = node.action_rewards,
+                total_reward = total_reward,
+                cost = node.cost,
+                "Evaluated state"
+            );
 
-    /// Plan actions for all players using A* search with shared state
-    pub fn plan(&mut self, world: &WorldState) {
-        let start_time = Instant::now();
+            // Select best plan by: (1) highest total_reward, (2) lowest cost as tiebreaker
+            let is_better = self.best_plan.is_none()
+                || if (total_reward - self.best_state_reward).abs() < REWARD_COMPARISON_EPSILON {
+                    // Total rewards are equal (within epsilon), use cost as tiebreaker
+                    node.cost < self.best_cost
+                } else {
+                    total_reward > self.best_state_reward
+                };
 
-        // Plan for all players simultaneously
-        let plans = self.plan_all_players(world, start_time);
-
-        let current_tick = world.tick as u32;
-
-        // Apply plans to each player
-        for (player_id, (plan_sequence, total_duration)) in plans.into_iter().enumerate() {
-            if !plan_sequence.is_empty() {
-                let start_tick = current_tick;
-                let end_tick = start_tick + total_duration;
-
+            if is_better {
                 tracing::info!(
-                    "GOAP: Player {} plan: {} actions (start: {}, end: {})",
-                    player_id,
-                    plan_sequence.len(),
-                    start_tick,
-                    end_tick
+                    total_actions = node.total_actions(),
+                    old_total_reward = self.best_state_reward,
+                    new_total_reward = total_reward,
+                    old_cost = self.best_cost,
+                    new_cost = node.cost,
+                    "Found better plan"
                 );
-                for (i, action) in plan_sequence.iter().enumerate() {
-                    tracing::info!("  [{}] {:?}", i, action);
-                }
-
-                let state = self.state.as_mut().unwrap();
-                state.player_states[player_id].plan_sequence = plan_sequence;
-                state.player_states[player_id].current_action_index = 0;
-                state.player_states[player_id].action_start_time = Some(start_tick);
-                state.player_states[player_id].action_end_time = Some(end_tick);
-            } else {
-                // No plan for this player
-                self.state.as_mut().unwrap().clear_plan(player_id);
+                self.best_state_reward = total_reward;
+                self.best_cost = node.cost;
+                self.best_plan = Some(node.clone());
             }
         }
     }
 
-    /// Plan for all players simultaneously using A* search
-    /// Each expansion adds one action to the player with earliest end time
-    #[tracing::instrument(skip(self, world, start_time))]
-    fn plan_all_players(
+    fn generate_candidates(
+        &self,
+        current_node: &PlanNode,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
+        let simulated_state = current_node.state_after_last_action.as_ref().unwrap();
+        let mut candidates: Vec<Box<dyn GOAPActionTrait>> = Vec::new();
+
+        let explore_actions = ExploreAction::generate(simulated_state, player_index);
+        let explore_count = explore_actions.len();
+        candidates.extend(explore_actions);
+
+        let key_actions = GetKeyAction::generate(simulated_state, player_index);
+        let key_count = key_actions.len();
+        candidates.extend(key_actions);
+
+        let door_actions = OpenDoorAction::generate(simulated_state, player_index);
+        let door_count = door_actions.len();
+        candidates.extend(door_actions);
+
+        let sword_actions = PickupSwordAction::generate(simulated_state, player_index);
+        let sword_count = sword_actions.len();
+        candidates.extend(sword_actions);
+
+        let health_actions = PickupHealthAction::generate(simulated_state, player_index);
+        let health_count = health_actions.len();
+        candidates.extend(health_actions);
+
+        let attack_actions = AttackEnemyAction::generate(simulated_state, player_index);
+        let attack_count = attack_actions.len();
+        candidates.extend(attack_actions);
+
+        let hunt_actions = HuntEnemyAction::generate(simulated_state, player_index);
+        let hunt_count = hunt_actions.len();
+        candidates.extend(hunt_actions);
+
+        let avoid_actions = AvoidEnemyAction::generate(simulated_state, player_index);
+        let avoid_count = avoid_actions.len();
+        candidates.extend(avoid_actions);
+
+        let plate_door_actions =
+            PassThroughDoorWithPlateAction::generate(simulated_state, player_index);
+        let plate_door_count = plate_door_actions.len();
+        // candidates.extend(plate_door_actions);
+
+        let wait_actions = WaitOnPlateAction::generate(simulated_state, player_index);
+        let wait_count = wait_actions.len();
+        // candidates.extend(wait_actions);
+
+        let pickup_boulder_actions = PickupBoulderAction::generate(simulated_state, player_index);
+        let pickup_boulder_count = pickup_boulder_actions.len();
+        candidates.extend(pickup_boulder_actions);
+
+        let drop_boulder_actions = DropBoulderAction::generate(simulated_state, player_index);
+        let drop_boulder_count = drop_boulder_actions.len();
+        candidates.extend(drop_boulder_actions);
+
+        let drop_on_plate_actions =
+            DropBoulderOnPlateAction::generate(simulated_state, player_index);
+        let drop_on_plate_count = drop_on_plate_actions.len();
+        candidates.extend(drop_on_plate_actions);
+
+        let touch_plate_actions = TouchPlateAction::generate(simulated_state, player_index);
+        let touch_plate_count = touch_plate_actions.len();
+        candidates.extend(touch_plate_actions);
+
+        let exit_actions = ReachExitAction::generate(simulated_state, player_index);
+        let exit_count = exit_actions.len();
+        candidates.extend(exit_actions);
+
+        if !candidates.is_empty() {
+            tracing::debug!(
+                player_id = player_index,
+                total = candidates.len(),
+                explore = explore_count,
+                get_key = key_count,
+                open_door = door_count,
+                pickup_sword = sword_count,
+                pickup_health = health_count,
+                attack = attack_count,
+                hunt = hunt_count,
+                avoid = avoid_count,
+                plate_door = plate_door_count,
+                wait = wait_count,
+                pickup_boulder = pickup_boulder_count,
+                drop_boulder = drop_boulder_count,
+                drop_on_plate = drop_on_plate_count,
+                touch_plate = touch_plate_count,
+                exit = exit_count,
+                "Generated candidates"
+            );
+        } else {
+            tracing::debug!(player_id = player_index, "No candidates generated");
+        }
+
+        candidates
+    }
+
+    fn generate_child_nodes(
         &mut self,
-        world: &WorldState,
-        start_time: Instant,
-    ) -> Vec<(Vec<Box<dyn GOAPActionTrait>>, u32)> {
-        let initial_state = self.state.as_ref().unwrap().clone();
+        candidates: Vec<Box<dyn GOAPActionTrait>>,
+        current_node: &PlanNode,
+        idle_player: usize,
+    ) {
+        for (candidate_idx, action) in candidates.iter().enumerate() {
+            let action_start_time = current_node.player_end_times[idle_player];
+            let current_node_time = *current_node.player_end_times.iter().min().unwrap();
+
+            let duration = action.duration(&current_node.state_before_last_action, idle_player);
+            let action_end_time = if action.is_terminal() {
+                u32::MAX
+            } else {
+                action_start_time + duration
+            };
+
+            let cost = action.cost(&current_node.state_before_last_action, idle_player);
+            let child_cost = current_node.cost + cost;
+
+            let action_reward = action.reward(&current_node.state_before_last_action, idle_player);
+            let child_action_rewards = current_node.action_rewards + action_reward;
+
+            let mut child_sequences = current_node.player_sequences.clone();
+            child_sequences[idle_player].push(action.clone());
+
+            let mut child_end_times = current_node.player_end_times.clone();
+            child_end_times[idle_player] = action_end_time;
+
+            tracing::trace!(
+                player_id = idle_player,
+                candidate = candidate_idx + 1,
+                total_candidates = candidates.len(),
+                action = ?action,
+                cost = cost,
+                duration = duration,
+                all_player_plans = ?current_node.all_plans(),
+                current_node_time = current_node_time,
+                action_start_time = action_start_time,
+                action_end_time = action_end_time,
+                child_cost = child_cost,
+                action_reward = action_reward,
+                child_action_rewards = child_action_rewards,
+                child_sequences = ?child_sequences.iter().map(|seq| seq.iter().map(|a| a.name()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                child_end_times = ?child_end_times,
+                "Queueing child node"
+            );
+
+            let child_node = PlanNode {
+                player_sequences: child_sequences,
+                player_end_times: child_end_times,
+                last_processed_time: action_start_time,
+                state_before_last_action: current_node
+                    .state_after_last_action
+                    .as_ref()
+                    .unwrap()
+                    .clone(),
+                state_after_last_action: None,
+                initial_state: current_node.initial_state.clone(),
+                cost: child_cost,
+                action_rewards: child_action_rewards,
+                player: None,
+            };
+            self.open_set.push(child_node);
+        }
+    }
+
+    #[tracing::instrument(skip(self, world))]
+    pub fn plan(mut self, world: &WorldState) -> Plan {
         let num_players = world.players.len();
         let current_tick = world.tick as u32;
+        let start_time = Instant::now();
+        let game_state = GameState::new(world.clone());
 
         tracing::debug!(
             current_tick = current_tick,
@@ -171,357 +399,113 @@ impl GOAPPlanner {
             "Starting plan_all_players"
         );
 
-        // Create initial node (empty sequences for all players)
         let root_node = PlanNode {
             player_sequences: vec![Vec::new(); num_players],
             player_end_times: vec![current_tick; num_players],
-            state: initial_state.clone(),
-            initial_state: initial_state.clone(),
-            g_cost: 0.0,
-            h_cost: 0.0,
-            total_actions: 0,
+            last_processed_time: 0,
+            state_before_last_action: game_state.clone(),
+            state_after_last_action: None,
+            initial_state: game_state.clone(),
+            player: None,
+            cost: 0.0,
             action_rewards: 0.0,
         };
 
-        let mut open_set = BinaryHeap::new();
-        open_set.push(root_node);
+        self.open_set.push(root_node);
 
-        let mut best_plan: Option<PlanNode> = None;
-        let mut best_state_reward = f32::MIN;
-        let mut best_g_cost = f32::MAX;
-
-        // A* search - expand nodes until we reach max_depth total actions
-        while let Some(current_node) = open_set.pop() {
-            let all_plans: Vec<Vec<String>> = current_node
-                .player_sequences
-                .iter()
-                .map(|seq| seq.iter().map(|a| a.name().to_string()).collect())
-                .collect();
+        while let Some(mut current_node) = self.open_set.pop() {
             tracing::debug!(
-                total_actions = current_node.total_actions,
-                g_cost = current_node.g_cost,
-                score = -current_node.g_cost,
+                total_actions = current_node.total_actions(),
+                cost = current_node.cost,
+                score = -current_node.cost,
                 player_end_times = ?current_node.player_end_times,
-                all_plans = ?all_plans,
+                all_plans = ?current_node.all_plans(),
                 "Exploring node"
             );
 
-            // Check timeout
             if start_time.elapsed() > self.timeout {
-                tracing::warn!(total_actions = current_node.total_actions, "Planning timeout");
+                tracing::warn!(total_actions = current_node.total_actions(), "Planning timeout");
                 break;
             }
 
-            // Determine which player to plan for next (earliest end time)
-            let next_player = match current_node.next_player_to_plan(num_players) {
-                Some(p) => p,
-                None => continue,
-            };
+            let idle_players = current_node.get_idle_players(num_players);
 
-            // Skip inactive players
-            if !world.players[next_player].is_active {
-                tracing::debug!(player_id = next_player, "Skipping inactive player");
+            if idle_players.is_empty() {
+                tracing::debug!("All players have completed their plans");
                 continue;
             }
 
-            let current_plan_length = current_node.player_sequences[next_player].len();
-            let player_plan: Vec<String> = current_node.player_sequences[next_player]
-                .iter()
-                .map(|action| action.name().to_string())
-                .collect();
-
-            // // Calculate end times for each action in the plan
-            // let mut action_end_times = Vec::new();
-            // let mut time = current_tick;
-            // for action in current_node.player_sequences[next_player].iter() {
-            //     let duration = action.duration(&current_node.state, next_player);
-            //     time += duration;
-            //     action_end_times.push(time);
-            // }
-
-            // Prepare simulated state for this player's new action
-            // The new action will start at next_player's current end time
-            let action_start_time = current_node.player_end_times[next_player];
+            let action_start_time = current_node.player_end_times[idle_players[0]];
             let current_node_time = *current_node.player_end_times.iter().min().unwrap();
 
             tracing::debug!(
-                player_id = next_player,
-                end_time = current_node.player_end_times[next_player],
-                current_plan_length = current_plan_length,
-                position = ?(world.players[next_player].position.x, world.players[next_player].position.y),
-                player_plan = ?player_plan,
-                //action_end_times = ?action_end_times,
+                idle_players = ?idle_players,
                 action_start_time = action_start_time,
                 current_node_time = current_node_time,
-                time_delta = action_start_time - current_node_time,
-                "Planning for player"
+                all_player_plans = ?current_node.all_plans(),
+                "Processing players at time point"
             );
 
-            // Apply effect of the previous action of this player (if any)
-            // The previous action completes at action_start_time (when the new action begins)
-            let mut simulated_state = current_node.state.clone();
-            let player_sequence = &current_node.player_sequences[next_player];
-            if !player_sequence.is_empty() {
-                let previous_action = player_sequence.last().unwrap();
-                previous_action.effect(&mut simulated_state, next_player);
+            // Update end state for ALL players at this time point to get complete state
+            for &idle_player in &idle_players {
+                current_node.update_end_state(idle_player);
             }
 
-            // If this node has actions, evaluate the simulated state for best plan tracking
-            if current_node.total_actions > 0 {
-                let state_reward = evaluate_state(&simulated_state, &current_node.initial_state);
-                let total_reward = state_reward + current_node.action_rewards;
-                tracing::info!(
-                    player_id = next_player,
-                    total_actions = current_node.total_actions,
-                    state_reward = state_reward,
-                    action_rewards = current_node.action_rewards,
-                    total_reward = total_reward,
-                    g_cost = current_node.g_cost,
-                    "Evaluated state"
-                );
-
-                // Select best plan by: (1) highest total_reward, (2) lowest g_cost (path length) as tiebreaker
-                let is_better = if (total_reward - best_state_reward).abs() < 0.001 {
-                    // State rewards are equal (within epsilon), use g_cost as tiebreaker
-                    current_node.g_cost < best_g_cost
-                } else {
-                    state_reward > best_state_reward
-                };
-
-                if is_better {
-                    tracing::info!(
-                        total_actions = current_node.total_actions,
-                        old_total_reward = best_state_reward,
-                        new_total_reward = total_reward,
-                        old_g_cost = best_g_cost,
-                        new_g_cost = current_node.g_cost,
-                        "Found better plan"
-                    );
-                    best_state_reward = total_reward;
-                    best_g_cost = current_node.g_cost;
-                    best_plan = Some(current_node.clone());
-                }
-            }
+            self.evaluate(&current_node);
 
             // If we've reached max depth, don't expand further
-            if current_node.total_actions >= self.max_depth {
+            if current_node.total_actions() >= self.max_depth {
+                tracing::debug!(
+                    total_actions = current_node.total_actions(),
+                    "Reached max depth, not expanding further"
+                );
                 continue;
             }
 
-            // Generate all candidate actions for this player using the simulated state
-            // Each action's generate() function filters by preconditions internally
-            let mut candidates: Vec<Box<dyn GOAPActionTrait>> = Vec::new();
+            // Now expand only the FIRST idle player (to maintain linear planning)
+            let idle_player = idle_players[0];
 
-            let explore_actions = ExploreAction::generate(&simulated_state, next_player);
-            let explore_count = explore_actions.len();
-            candidates.extend(explore_actions);
+            tracing::debug!(
+                player_id = idle_player,
+                end_time = current_node.player_end_times[idle_player],
+                position = ?(world.players[idle_player].position.x, world.players[idle_player].position.y),
+                player_plan = ?current_node.plan_for_player(idle_player),
+                current_plan_length = current_node.plan_for_player(idle_player).len(),
+                "Planning for player"
+            );
 
-            let key_actions = GetKeyAction::generate(&simulated_state, next_player);
-            let key_count = key_actions.len();
-            candidates.extend(key_actions);
-
-            let door_actions = OpenDoorAction::generate(&simulated_state, next_player);
-            let door_count = door_actions.len();
-            candidates.extend(door_actions);
-
-            let sword_actions = PickupSwordAction::generate(&simulated_state, next_player);
-            let sword_count = sword_actions.len();
-            candidates.extend(sword_actions);
-
-            let health_actions = PickupHealthAction::generate(&simulated_state, next_player);
-            let health_count = health_actions.len();
-            candidates.extend(health_actions);
-
-            let attack_actions = AttackEnemyAction::generate(&simulated_state, next_player);
-            let attack_count = attack_actions.len();
-            candidates.extend(attack_actions);
-
-            let hunt_actions = HuntEnemyAction::generate(&simulated_state, next_player);
-            let hunt_count = hunt_actions.len();
-            candidates.extend(hunt_actions);
-
-            let avoid_actions = AvoidEnemyAction::generate(&simulated_state, next_player);
-            let avoid_count = avoid_actions.len();
-            candidates.extend(avoid_actions);
-
-            let plate_door_actions =
-                PassThroughDoorWithPlateAction::generate(&simulated_state, next_player);
-            let plate_door_count = plate_door_actions.len();
-            // candidates.extend(plate_door_actions);
-
-            let wait_actions = WaitOnPlateAction::generate(&simulated_state, next_player);
-            let wait_count = wait_actions.len();
-            // candidates.extend(wait_actions);
-
-            let pickup_boulder_actions =
-                PickupBoulderAction::generate(&simulated_state, next_player);
-            let pickup_boulder_count = pickup_boulder_actions.len();
-            candidates.extend(pickup_boulder_actions);
-
-            let drop_boulder_actions = DropBoulderAction::generate(&simulated_state, next_player);
-            let drop_boulder_count = drop_boulder_actions.len();
-            candidates.extend(drop_boulder_actions);
-
-            let drop_on_plate_actions =
-                DropBoulderOnPlateAction::generate(&simulated_state, next_player);
-            let drop_on_plate_count = drop_on_plate_actions.len();
-            candidates.extend(drop_on_plate_actions);
-
-            let touch_plate_actions = TouchPlateAction::generate(&simulated_state, next_player);
-            let touch_plate_count = touch_plate_actions.len();
-            candidates.extend(touch_plate_actions);
-
-            let exit_actions = ReachExitAction::generate(&simulated_state, next_player);
-            let exit_count = exit_actions.len();
-            candidates.extend(exit_actions);
-
-            if !candidates.is_empty() {
+            if current_node.is_player_terminal(idle_player) {
                 tracing::debug!(
-                    player_id = next_player,
-                    total = candidates.len(),
-                    explore = explore_count,
-                    get_key = key_count,
-                    open_door = door_count,
-                    pickup_sword = sword_count,
-                    pickup_health = health_count,
-                    attack = attack_count,
-                    hunt = hunt_count,
-                    avoid = avoid_count,
-                    plate_door = plate_door_count,
-                    wait = wait_count,
-                    pickup_boulder = pickup_boulder_count,
-                    drop_boulder = drop_boulder_count,
-                    drop_on_plate = drop_on_plate_count,
-                    touch_plate = touch_plate_count,
-                    exit = exit_count,
-                    "Generated candidates"
+                    player_id = idle_player,
+                    "Player has reached terminal action, skipping further planning"
                 );
-            } else {
-                tracing::debug!(player_id = next_player, "No candidates generated");
+                continue;
             }
 
-            // Expand node by trying each candidate action for this player
-            // All candidates already passed precondition check during generation
-            for (candidate_idx, action) in candidates.iter().enumerate() {
-                let all_plans: Vec<Vec<String>> = current_node
-                    .player_sequences
-                    .iter()
-                    .map(|seq| seq.iter().map(|a| a.name().to_string()).collect())
-                    .collect();
-                let duration = action.duration(&current_node.state, next_player);
-                let action_end_time = action_start_time + duration;
-                let cost = action.cost(&current_node.state, next_player);
+            let candidates = self.generate_candidates(&current_node, idle_player);
 
-                tracing::trace!(
-                    player_id = next_player,
-                    candidate = candidate_idx + 1,
-                    total_candidates = candidates.len(),
-                    action = ?action,
-                    cost = cost,
-                    duration = duration,
-                    all_player_plans = ?all_plans,
-                    current_node_time = current_node_time,
-                    action_start_time = action_start_time,
-                    action_end_time = action_end_time,
-                    "Evaluating candidate"
+            if candidates.is_empty() {
+                tracing::debug!(
+                    player_id = idle_player,
+                    "No candidates generated for player. Finishing plan"
                 );
-
-                let mut child_sequences = current_node.player_sequences.clone();
-                child_sequences[next_player].push(action.clone());
-
-                let mut child_end_times = current_node.player_end_times.clone();
-                child_end_times[next_player] = action_end_time;
-
-                let child_g_cost = current_node.g_cost + cost;
-                let action_reward = action.reward(&current_node.state, next_player);
-                let child_action_rewards = current_node.action_rewards + action_reward;
-
-                tracing::trace!(
-                    player_id = next_player,
-                    action = ?action,
-                    new_end_time = child_end_times[next_player],
-                    child_g_cost = child_g_cost,
-                    action_reward = action_reward,
-                    child_action_rewards = child_action_rewards,
-                    "Creating child node"
-                );
-
-                // If this is a terminal action, mark it as max depth to prevent further expansion
-                let child_total_actions = if action.is_terminal() {
-                    tracing::debug!(
-                        player_id = next_player,
-                        action = ?action,
-                        "Terminal action added - marking node as terminal"
-                    );
-                    self.max_depth // Mark as terminal - won't be expanded further
-                } else {
-                    current_node.total_actions + 1
-                };
-
-                let child_node = PlanNode {
-                    player_sequences: child_sequences,
-                    player_end_times: child_end_times,
-                    state: simulated_state.clone(),
-                    initial_state: current_node.initial_state.clone(),
-                    g_cost: child_g_cost,
-                    h_cost: 0.0,
-                    total_actions: child_total_actions,
-                    action_rewards: child_action_rewards,
-                };
-                open_set.push(child_node);
             }
+
+            self.generate_child_nodes(candidates, &current_node, idle_player);
         }
 
         // Return best plan found
         tracing::info!(
-            best_state_reward = best_state_reward,
-            best_g_cost = best_g_cost,
-            plan_found = best_plan.is_some(),
+            best_state_reward = self.best_state_reward,
+            best_cost = self.best_cost,
+            plan_found = self.best_plan.is_some(),
             "A* search completed"
         );
 
-        if let Some(plan) = best_plan {
-            for (player_id, sequence) in plan.player_sequences.iter().enumerate() {
-                if !sequence.is_empty() {
-                    let action_names: Vec<String> =
-                        sequence.iter().map(|a| format!("{:?}", a)).collect();
-                    tracing::info!(
-                        player_id = player_id,
-                        sequence = ?action_names,
-                        end_time = plan.player_end_times[player_id],
-                        "Selected plan for player"
-                    );
-                }
-            }
-
-            // Convert to return format: Vec<(sequence, duration)>
-            plan.player_sequences
-                .into_iter()
-                .enumerate()
-                .map(|(player_id, sequence)| {
-                    let duration = if sequence.is_empty() {
-                        0
-                    } else {
-                        plan.player_end_times[player_id] - current_tick
-                    };
-                    (sequence, duration)
-                })
-                .collect()
+        if let Some(plan) = self.best_plan.as_ref() {
+            plan.player_sequences.clone()
         } else {
-            tracing::warn!("No valid plan found, falling back to exploration");
-            // Fallback: create exploration action for each player
-            (0..num_players)
-                .map(|player_id| {
-                    let actions = ExploreAction::generate(&initial_state, player_id);
-                    if let Some(action) = actions.into_iter().next() {
-                        let duration = action.duration(&initial_state, player_id);
-                        (vec![action], duration)
-                    } else {
-                        // If no exploration action can be generated, return empty plan
-                        (vec![], 0)
-                    }
-                })
-                .collect()
+            Vec::new()
         }
     }
 }

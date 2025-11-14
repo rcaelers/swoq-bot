@@ -1,4 +1,4 @@
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -9,14 +9,14 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 pub struct AttackEnemyAction {}
 
 impl GOAPActionTrait for AttackEnemyAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         // Need sword, health >= 7 to attack, and enemies must exist
         player.has_sword && player.health >= 7 && !world.enemies.is_empty()
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         let player_pos = state.world.players[player_index].position;
 
         // Find closest enemy and attack it
@@ -93,7 +93,7 @@ impl GOAPActionTrait for AttackEnemyAction {
         }
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -109,7 +109,7 @@ impl GOAPActionTrait for AttackEnemyAction {
         15.0 + distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
+    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -127,33 +127,22 @@ impl GOAPActionTrait for AttackEnemyAction {
         "AttackEnemy"
     }
 
-    fn reward(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
         // Positive reward for attacking nearby enemies when armed
         15.0
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn is_combat_action(&self) -> bool {
+        true
+    }
+
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];
 
-        tracing::debug!(
-            "AttackEnemy::generate - Player {}: frontier_empty={}, has_sword={}, health={}, enemies={}",
-            player_index,
-            player.unexplored_frontier.is_empty(),
-            player.has_sword,
-            player.health,
-            world.enemies.get_positions().len()
-        );
-
         // Only generate attack actions if player has a sword and health >= 7
         if !player.has_sword || player.health < 7 {
-            tracing::debug!(
-                "AttackEnemy::generate - Player {} skipped: has_sword={}, health={}",
-                player_index,
-                player.has_sword,
-                player.health
-            );
             return actions;
         }
 
@@ -165,19 +154,8 @@ impl GOAPActionTrait for AttackEnemyAction {
             3 // Only nearby enemies while exploring
         };
 
-        tracing::debug!(
-            "AttackEnemy::generate - Player {} max_distance={}",
-            player_index,
-            if max_distance == i32::MAX {
-                "unlimited".to_string()
-            } else {
-                max_distance.to_string()
-            }
-        );
-
         // Check if any enemy is within range and log distances
         let mut closest_dist = i32::MAX;
-        let mut closest_pos = None;
         for enemy_pos in world.enemies.get_positions() {
             let dist = world.path_distance_to_enemy(player.position, *enemy_pos);
             tracing::debug!(
@@ -188,39 +166,16 @@ impl GOAPActionTrait for AttackEnemyAction {
             );
             if dist < closest_dist {
                 closest_dist = dist;
-                closest_pos = Some(*enemy_pos);
             }
         }
 
         let has_enemy_in_range = closest_dist <= max_distance;
 
-        tracing::debug!(
-            "AttackEnemy::generate - Player {} closest_enemy={:?}, closest_dist={}, in_range={}",
-            player_index,
-            closest_pos,
-            closest_dist,
-            has_enemy_in_range
-        );
-
         if has_enemy_in_range {
             let action = AttackEnemyAction {};
             if action.precondition(state, player_index) {
-                tracing::debug!(
-                    "AttackEnemy::generate - Player {} generated AttackEnemy action",
-                    player_index
-                );
                 actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
-            } else {
-                tracing::debug!(
-                    "AttackEnemy::generate - Player {} precondition failed",
-                    player_index
-                );
             }
-        } else {
-            tracing::debug!(
-                "AttackEnemy::generate - Player {} skipped: no enemies in range",
-                player_index
-            );
         }
 
         actions

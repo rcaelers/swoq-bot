@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -14,7 +14,7 @@ pub struct TouchPlateAction {
 }
 
 impl GOAPActionTrait for TouchPlateAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -38,7 +38,7 @@ impl GOAPActionTrait for TouchPlateAction {
         }
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         // Move player to plate position
         state.world.players[player_index].position = self.plate_pos;
         // Track that we touched a plate of this color (only counts once per color)
@@ -73,12 +73,12 @@ impl GOAPActionTrait for TouchPlateAction {
         execute_move_to(world, player_index, self.plate_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         // Low cost with small bonus to encourage this when idle
         self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         // Distance to reach plate + 2 ticks to stand on it
         self.cached_distance + 2
     }
@@ -87,7 +87,7 @@ impl GOAPActionTrait for TouchPlateAction {
         "TouchPlate"
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

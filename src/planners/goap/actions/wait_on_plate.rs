@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -13,7 +13,7 @@ pub struct WaitOnPlateAction {
 }
 
 impl GOAPActionTrait for WaitOnPlateAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         world
@@ -25,7 +25,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
                 .is_some()
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.plate_pos;
     }
 
@@ -43,7 +43,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
         }
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
         5.0 + state
             .world
             .path_distance(state.world.players[player_index].position, self.plate_pos)
@@ -51,7 +51,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
             * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
+    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
         // Distance to plate + time waiting (for synchronized multi-player actions)
         // We estimate the synchronized partner will need this long
         let distance = state
@@ -65,7 +65,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
         "WaitOnPlate"
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
 

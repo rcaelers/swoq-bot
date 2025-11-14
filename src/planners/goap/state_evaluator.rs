@@ -1,13 +1,23 @@
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::swoq_interface::Inventory;
 
 /// Evaluate the reward/score of a world state
 /// This compares the current state to determine progress toward goals
-pub fn evaluate_state(state: &PlannerState, initial_state: &PlannerState) -> f32 {
+pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
     let mut score = 0.0;
+
 
     // Goal: Reach the exit with all players (ultimate goal)
     if state.world.exit_position.is_some() {
+        for (player_id, player) in state.world.players.iter().enumerate() {
+            tracing::debug!(
+                "Player {} at position {:?}, inventory: {:?}",
+                player_id,
+                player.position,
+                player.inventory
+            );
+        }
+
         let all_at_exit = state.world.players.iter().all(|p| {
             Some(p.position) == state.world.exit_position && p.inventory == Inventory::None // Must have empty inventory
         });

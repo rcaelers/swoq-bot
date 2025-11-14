@@ -4161,6 +4161,7 @@ dependencies = [
  "bevy",
  "dotenv",
  "prost",
+ "rand",
  "time",
  "tokio",
  "tonic",

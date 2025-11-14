@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -13,7 +13,7 @@ pub struct ReachExitAction {
 }
 
 impl GOAPActionTrait for ReachExitAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         
@@ -38,7 +38,7 @@ impl GOAPActionTrait for ReachExitAction {
         true
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.exit_pos;
     }
 
@@ -51,11 +51,11 @@ impl GOAPActionTrait for ReachExitAction {
         execute_move_to(world, player_index, self.exit_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance
     }
 
@@ -67,7 +67,7 @@ impl GOAPActionTrait for ReachExitAction {
         true
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

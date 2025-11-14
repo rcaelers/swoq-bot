@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position, use_direction};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -45,7 +45,9 @@ impl PickupBoulderAction {
         while let Some((current_pos, distance)) = queue.pop_front() {
             // Check neighbors for boulders
             for neighbor in world.valid_neighbors(&current_pos) {
-                if world.boulders.contains(&neighbor) && !found_boulder_positions.contains(&neighbor) {
+                if world.boulders.contains(&neighbor)
+                    && !found_boulder_positions.contains(&neighbor)
+                {
                     found_boulder_positions.insert(neighbor);
                     let is_unexplored = !world.boulders.has_moved(&neighbor);
                     let on_plate = plate_positions.contains(&neighbor);
@@ -67,7 +69,7 @@ impl PickupBoulderAction {
 }
 
 impl GOAPActionTrait for PickupBoulderAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -76,7 +78,7 @@ impl GOAPActionTrait for PickupBoulderAction {
         player.inventory == Inventory::None && world.boulders.contains(&self.boulder_pos)
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         // Simulate picking up the boulder
         state.world.players[player_index].inventory = Inventory::Boulder;
         // Mark boulder as moved (it will be in player's inventory)
@@ -106,12 +108,12 @@ impl GOAPActionTrait for PickupBoulderAction {
         execute_move_to(world, player_index, self.target_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         // Cost is based on cached distance to target position
         5.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 for picking up
     }
 
@@ -120,7 +122,7 @@ impl GOAPActionTrait for PickupBoulderAction {
     }
 
     #[tracing::instrument(skip(state))]
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
 
@@ -144,12 +146,12 @@ impl GOAPActionTrait for PickupBoulderAction {
             .iter()
             .filter(|(_, _, _, is_unexplored, _)| *is_unexplored)
             .collect();
-        
+
         let explored_not_on_plate: Vec<_> = all_boulders
             .iter()
             .filter(|(_, _, _, is_unexplored, on_plate)| !*is_unexplored && !*on_plate)
             .collect();
-        
+
         let explored_on_plate: Vec<_> = all_boulders
             .iter()
             .filter(|(_, _, _, is_unexplored, on_plate)| !*is_unexplored && *on_plate)
@@ -158,7 +160,7 @@ impl GOAPActionTrait for PickupBoulderAction {
         // Decision logic based on priority:
         // 1. If there are unexplored boulders, return closest reachable one
         if !unexplored.is_empty() {
-            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = 
+            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) =
                 unexplored.iter().min_by_key(|(_, _, dist, _, _)| *dist)
             {
                 let action = PickupBoulderAction {
@@ -172,8 +174,9 @@ impl GOAPActionTrait for PickupBoulderAction {
         }
         // 2. If no unexplored, return closest explored boulder not on pressure plate
         else if !explored_not_on_plate.is_empty() {
-            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = 
-                explored_not_on_plate.iter().min_by_key(|(_, _, dist, _, _)| *dist)
+            if let Some(&(boulder_pos, target_pos, cached_distance, _, _)) = explored_not_on_plate
+                .iter()
+                .min_by_key(|(_, _, dist, _, _)| *dist)
             {
                 let action = PickupBoulderAction {
                     boulder_pos: *boulder_pos,
@@ -197,11 +200,6 @@ impl GOAPActionTrait for PickupBoulderAction {
             }
         }
 
-        tracing::debug!(
-            "Generated {} PickupBoulderAction(s) for Player {}",
-            actions.len(),
-            player_index + 1
-        );
         actions
     }
 }

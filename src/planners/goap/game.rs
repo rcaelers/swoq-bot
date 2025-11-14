@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::infra::{GameConnection, GameObserver};
-use crate::planners::goap::{GOAPExecutor, GOAPPlanner};
+use crate::planners::goap::{Executor, Planner};
 use crate::state::WorldState;
 use crate::swoq_interface::{self, DirectedAction, GameStatus};
 
@@ -10,8 +10,11 @@ pub struct Game {
     observer: Box<dyn GameObserver>,
     world: WorldState,
     current_level: i32,
-    planner: GOAPPlanner,
-    executor: GOAPExecutor,
+    executor: Executor,
+
+    // Planner configuration
+    planner_max_depth: usize,
+    planner_timeout_ms: u64,
 
     // Game statistics (persistent across levels)
     pub successful_runs: i32,
@@ -30,8 +33,9 @@ impl Game {
             observer: Box::new(observer),
             world: WorldState::new(0, 0, 0),
             current_level: 0,
-            planner: GOAPPlanner::new(goap_max_depth, 500),
-            executor: GOAPExecutor::new(),
+            planner_max_depth: goap_max_depth,
+            planner_timeout_ms: 500,
+            executor: Executor::new(),
             successful_runs: 0,
             failed_runs: 0,
             game_count: 0,
@@ -59,10 +63,8 @@ impl Game {
         self.world = WorldState::new(game.map_width, game.map_height, game.visibility_range);
         self.current_level = game.state.level;
 
-        // Reset planner and executor for new game
-        self.planner =
-            GOAPPlanner::new(self.planner.max_depth, self.planner.timeout.as_millis() as u64);
-        self.executor = GOAPExecutor::new();
+        // Reset executor for new game
+        self.executor = Executor::new();
 
         loop {
             if game.state.status != swoq_interface::GameStatus::Active as i32 {
@@ -94,7 +96,10 @@ impl Game {
                     break;
                 }
             } else {
-                tracing::debug!("Skipping tick {} - no executable actions, will replan next iteration", game.state.tick);
+                tracing::debug!(
+                    "Skipping tick {} - no executable actions, will replan next iteration",
+                    game.state.tick
+                );
             }
         }
 
@@ -119,60 +124,37 @@ impl Game {
     }
 
     fn plan_and_execute(&mut self) -> Option<Vec<DirectedAction>> {
-        // Initialize or update planner state
-        self.planner.update_state(&self.world);
-
-        // Check if we need to replan
         tracing::info!("GOAP: Check replan");
-        let (should_replan, is_emergency) = self.planner.needs_replan();
+        let (should_replan, is_emergency) = self.executor.needs_replan(&self.world);
         if should_replan {
             if is_emergency {
                 tracing::info!("GOAP: EMERGENCY replanning (enemy/health change)");
             } else {
                 tracing::info!("GOAP: Scheduled replanning");
             }
-            self.planner.plan(&self.world);
+            let planner = Planner::new(self.planner_max_depth, self.planner_timeout_ms);
+            let plans = planner.plan(&self.world);
+            self.executor.set_plans(plans);
             tracing::info!("GOAP: Done replanning");
         }
 
-        // Update observer with current action goals and paths for each player
-        let planner_state = self.planner.state.as_ref().unwrap();
-        let mut paths = Vec::new();
+        // Execute current plans
+        let actions = self.executor.step(&mut self.world);
 
-        for (player_index, player_state) in planner_state.player_states.iter().enumerate() {
-            if !player_state.plan_sequence.is_empty()
-                && player_state.current_action_index < player_state.plan_sequence.len()
-            {
-                let current_action = &player_state.plan_sequence[player_state.current_action_index];
-                let action_name = current_action.name();
-                self.observer
-                    .on_goal_selected(player_index, action_name, &self.world);
-
-                // Get the current path if available
-                paths.push(player_state.execution_state.cached_path.clone());
-            } else {
-                paths.push(None);
-            }
+        let goal_names = self.executor.current_goal_names();
+        for (player_id, goal_name) in goal_names.iter().enumerate() {
+            self.observer
+                .on_goal_selected(player_id, goal_name, &self.world);
         }
 
-        self.observer.on_paths_updated(paths);
-
-        // Execute current plans
-        self.executor
-            .execute(self.planner.state.as_mut().unwrap(), &mut self.world)
+        actions
     }
 
     fn check_level(&mut self, game: &crate::infra::swoq::Game) {
         if game.state.level != self.current_level {
             self.observer.on_new_level(game.state.level);
-            // Create a new WorldState for the new level
             self.world = WorldState::new(game.map_width, game.map_height, game.visibility_range);
-
-            // Reset the planner and executor for the new level
-            self.planner =
-                GOAPPlanner::new(self.planner.max_depth, self.planner.timeout.as_millis() as u64);
-            self.executor = GOAPExecutor::new();
-
+            self.executor = Executor::new();
             self.current_level = game.state.level;
         }
     }

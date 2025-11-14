@@ -1,5 +1,5 @@
 use crate::infra::{use_direction, Position};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory, Tile};
 
@@ -11,7 +11,7 @@ pub struct DropBoulderAction {
 }
 
 impl GOAPActionTrait for DropBoulderAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
 
@@ -34,7 +34,7 @@ impl GOAPActionTrait for DropBoulderAction {
         matches!(world.map.get(&self.drop_pos), Some(Tile::Empty))
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         // Drop the boulder
         state.world.players[player_index].inventory = Inventory::None;
         // Place boulder at drop position
@@ -58,12 +58,12 @@ impl GOAPActionTrait for DropBoulderAction {
         (action, ExecutionStatus::Complete)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         // Low cost for dropping
         1.0
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         // Just 1 tick to drop
         1
     }
@@ -72,7 +72,7 @@ impl GOAPActionTrait for DropBoulderAction {
         "DropBoulder"
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

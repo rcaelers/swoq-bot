@@ -32,11 +32,23 @@ pub(super) fn execute_move_to(
             }
             (action, ExecutionStatus::InProgress)
         } else {
+            tracing::debug!(
+                "execute_move_to: Player {} could not convert path to action from {:?} to {:?}",
+                player_index,
+                player.position,
+                target
+            );
             execution_state.cached_path = None;
             execution_state.path_target = None;
             (DirectedAction::None, ExecutionStatus::Failed)
         }
     } else {
+        tracing::debug!(
+            "execute_move_to: Player {} could not find path from {:?} to {:?}",
+            player_index,
+            player.position,
+            target
+        );
         execution_state.cached_path = None;
         execution_state.path_target = None;
         (DirectedAction::None, ExecutionStatus::Failed)

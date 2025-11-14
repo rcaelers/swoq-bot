@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -13,14 +13,14 @@ pub struct PickupSwordAction {
 }
 
 impl GOAPActionTrait for PickupSwordAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         // Path reachability validated during generation
         world.swords.get_positions().contains(&self.sword_pos) && !player.has_sword
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].has_sword = true;
         state.world.players[player_index].position = self.sword_pos;
         // Remove sword from tracker and map (for planning simulation)
@@ -40,11 +40,11 @@ impl GOAPActionTrait for PickupSwordAction {
         execute_move_to(world, player_index, self.sword_pos, execution_state)
     }
 
-    fn cost(&self, _state: &PlannerState, _player_index: usize) -> f32 {
+    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
         10.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &PlannerState, _player_index: usize) -> u32 {
+    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 to pick it up
     }
 
@@ -52,7 +52,7 @@ impl GOAPActionTrait for PickupSwordAction {
         "PickupSword"
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
         let player = &world.players[player_index];

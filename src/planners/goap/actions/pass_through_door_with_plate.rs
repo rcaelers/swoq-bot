@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::planner_state::PlannerState;
+use crate::planners::goap::game_state::GameState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -15,7 +15,7 @@ pub struct PassThroughDoorWithPlateAction {
 }
 
 impl GOAPActionTrait for PassThroughDoorWithPlateAction {
-    fn precondition(&self, state: &PlannerState, player_index: usize) -> bool {
+    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
         let door_exists = world
@@ -35,7 +35,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
                 .is_some()
     }
 
-    fn effect(&self, state: &mut PlannerState, player_index: usize) {
+    fn effect(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.target_pos;
     }
 
@@ -48,7 +48,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         execute_move_to(world, player_index, self.target_pos, execution_state)
     }
 
-    fn cost(&self, state: &PlannerState, player_index: usize) -> f32 {
+    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
         10.0 + state
             .world
             .path_distance(state.world.players[player_index].position, self.door_pos)
@@ -56,7 +56,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
             * 0.1
     }
 
-    fn duration(&self, state: &PlannerState, player_index: usize) -> u32 {
+    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
         // Distance to door + distance through door to target + coordination overhead
         let to_door = state
             .world
@@ -74,7 +74,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         Some((self.door_color, self.door_pos, self.plate_pos))
     }
 
-    fn generate(state: &PlannerState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
         let world = &state.world;
 
