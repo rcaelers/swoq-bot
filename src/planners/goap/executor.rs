@@ -46,6 +46,20 @@ impl Executor {
                 continue;
             }
 
+            tracing::debug!(
+                "GOAP: Player {} location {:?} destination {} path {}",
+                player_id,
+                world.players[player_id].position,
+                match &world.players[player_id].current_destination {
+                    Some(d) => format!("{:?}", d),
+                    None => "None".to_string(),
+                },
+                match &world.players[player_id].current_path {
+                    Some(p) => format!("{:?}", p),
+                    None => "None".to_string(),
+                }
+            );
+
             let mut final_action = DirectedAction::None;
             let mut found_executable_action = false;
 
@@ -76,6 +90,10 @@ impl Executor {
                             current_action
                         );
 
+                        // Clear cached path and destination on completion
+                        world.players[player_id].current_path = None;
+                        world.players[player_id].current_destination = None;
+
                         player_state.current_action_index += 1;
                         player_state.execution_state = ActionExecutionState::default();
 
@@ -96,6 +114,9 @@ impl Executor {
                             player_state.plan_sequence.len(),
                             current_action
                         );
+                        // Clear cached path and destination on failure
+                        world.players[player_id].current_path = None;
+                        world.players[player_id].current_destination = None;
                         // Failed action - don't send to server
                         break;
                     }

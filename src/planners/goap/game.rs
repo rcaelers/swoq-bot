@@ -77,6 +77,15 @@ impl Game {
             self.update_world(&game.state);
 
             if let Some(actions) = self.plan_and_execute() {
+                tracing::debug!(
+                    "GOAP: Executing actions {} for tick {}",
+                    actions
+                        .iter()
+                        .map(|a| format!("{:?}", a))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                    game.state.tick
+                );
                 let action_result = self.act_goap(&mut game, actions).await?;
 
                 // Log slow ticks

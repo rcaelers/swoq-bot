@@ -153,6 +153,9 @@ impl WorldState {
                 debug!("Player has exited");
             }
             player.is_active = false;
+            // Clear cached path and destination when player exits
+            player.current_path = None;
+            player.current_destination = None;
         } else {
             player.is_active = true;
         }
@@ -587,7 +590,7 @@ impl WorldState {
     /// - A pressure plate + available boulder
     pub fn can_any_door_be_opened(&self) -> bool {
         use crate::infra::Color;
-        
+
         for color in [Color::Red, Color::Green, Color::Blue] {
             // Check if there are doors of this color
             if let Some(_door_positions) = self.doors.get_positions(color) {
@@ -595,21 +598,21 @@ impl WorldState {
                 if self.knows_key_location(color) {
                     return true;
                 }
-                
+
                 // Check if we have a pressure plate of this color and available boulders
                 if self.pressure_plates.has_color(color) {
                     // Check if we have any boulders not already on plates
                     let boulders_on_plates = self.get_boulders_on_plates();
                     let total_boulders = self.boulders.len();
                     let boulders_used: usize = boulders_on_plates.values().map(|v| v.len()).sum();
-                    
+
                     if total_boulders > boulders_used {
                         return true;
                     }
                 }
             }
         }
-        
+
         false
     }
 
@@ -1057,22 +1060,43 @@ impl WorldState {
     ) -> Option<Vec<Position>> {
         let planning_player_pos = self.players[player_index].position;
 
-        // For player 2, avoid player 1's path
-        if player_index == 1
-            && self.players.len() > 1
-            && let Some(ref p1_path) = self.players[0].current_path
-        {
-            debug!(
-                "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
-                start,
-                goal,
-                p1_path.len()
-            );
-            let result = self.find_path_avoiding_player(start, goal, p1_path, planning_player_pos);
+        // For player 2, avoid player 1's path or position
+        if player_index == 1 && self.players.len() > 1 {
+            // Determine what to avoid: either player 1's path, or their static position
+            let (p1_path_to_avoid, is_static) =
+                if let Some(ref p1_path) = self.players[0].current_path {
+                    (p1_path.clone(), false)
+                } else {
+                    // Player 1 has no path, treat their current position as permanently blocked
+                    // Single-element path means the position is blocked at all future ticks
+                    // (find_path_avoiding_player checks last_pos for ticks beyond path length)
+                    (vec![self.players[0].position], true)
+                };
+
+            if is_static {
+                debug!(
+                    "Player 2 finding path from {:?} to {:?}, avoiding Player 1's static position {:?}",
+                    start, goal, p1_path_to_avoid[0]
+                );
+            } else {
+                debug!(
+                    "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
+                    start,
+                    goal,
+                    p1_path_to_avoid.len()
+                );
+            }
+
+            let result =
+                self.find_path_avoiding_player(start, goal, &p1_path_to_avoid, planning_player_pos);
             if result.is_some() {
-                debug!("  ✓ Found path avoiding Player 1");
-                debug!("    Player 1 path: {:?}", p1_path);
-                debug!("    Player 2 path: {:?}", result);
+                if is_static {
+                    debug!("  ✓ Found path avoiding Player 1's position");
+                } else {
+                    debug!("  ✓ Found path avoiding Player 1");
+                    debug!("    Player 1 path: {:?}", p1_path_to_avoid);
+                    debug!("    Player 2 path: {:?}", result);
+                }
             } else {
                 debug!("  ✗ No direct path found avoiding Player 1, selecting random destination");
 
@@ -1108,7 +1132,7 @@ impl WorldState {
                         if let Some(path) = self.find_path_avoiding_player(
                             start,
                             random_pos,
-                            p1_path,
+                            &p1_path_to_avoid,
                             planning_player_pos,
                         ) {
                             debug!(

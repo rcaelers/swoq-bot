@@ -145,9 +145,9 @@ impl GOAPActionTrait for ExploreAction {
         }
 
         // Determine target: use cached target if still valid, otherwise find nearest
-        let needs_new_target = execution_state
-            .exploration_target
-            .is_none_or(|pos| !player.unexplored_frontier.contains(&pos));
+        let needs_new_target = execution_state.exploration_target.is_none_or(|pos| {
+            !player.unexplored_frontier.contains(&pos) || !world.is_walkable(&pos, pos)
+        });
 
         if needs_new_target {
             let nearest = Self::find_nearest_frontier(player).unwrap();
@@ -178,6 +178,11 @@ impl GOAPActionTrait for ExploreAction {
 
     fn is_terminal(&self) -> bool {
         true
+    }
+
+    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
+        // Small reward for exploration action to encourage discovering new areas
+        1.0
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

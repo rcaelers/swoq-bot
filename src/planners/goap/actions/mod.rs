@@ -109,8 +109,6 @@ pub enum ExecutionStatus {
 
 #[derive(Debug, Clone, Default)]
 pub struct ActionExecutionState {
-    pub cached_path: Option<Vec<Position>>,
-    pub path_target: Option<Position>,
     pub exploration_target: Option<Position>,
     pub initial_object_counts: Option<ObjectCounts>,
     pub wait_ticks: u32,

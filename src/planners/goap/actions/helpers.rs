@@ -5,26 +5,27 @@ use crate::swoq_interface::DirectedAction;
 use super::{ActionExecutionState, ExecutionStatus};
 
 pub(super) fn execute_move_to(
-    world: &WorldState,
+    world: &mut WorldState,
     player_index: usize,
     target: Position,
-    execution_state: &mut ActionExecutionState,
+    _execution_state: &mut ActionExecutionState,
 ) -> (DirectedAction, ExecutionStatus) {
-    let player = &world.players[player_index];
-    if player.position == target {
-        execution_state.cached_path = None;
-        execution_state.path_target = None;
+    let player_pos = world.players[player_index].position;
+    if player_pos == target {
+        world.players[player_index].current_path = None;
+        world.players[player_index].current_destination = None;
         return (DirectedAction::None, ExecutionStatus::Complete);
     }
 
     // Need to recompute path
-    if let Some(path) = world.find_path_for_player(player_index, player.position, target) {
-        execution_state.cached_path = Some(path.clone());
-        execution_state.path_target = Some(target);
+    if let Some(path) = world.find_path_for_player(player_index, player_pos, target) {
+        world.players[player_index].current_path = Some(path.clone());
+        world.players[player_index].current_destination = Some(target);
 
-        if let Some(action) = path_to_action(player.position, &path) {
+        if let Some(action) = path_to_action(player_pos, &path) {
             // Advance the path by removing the current position
-            if let Some(cached) = &mut execution_state.cached_path
+            let player = &mut world.players[player_index];
+            if let Some(cached) = &mut player.current_path
                 && !cached.is_empty()
                 && cached[0] == player.position
             {
@@ -35,37 +36,37 @@ pub(super) fn execute_move_to(
             tracing::debug!(
                 "execute_move_to: Player {} could not convert path to action from {:?} to {:?}",
                 player_index,
-                player.position,
+                player_pos,
                 target
             );
-            execution_state.cached_path = None;
-            execution_state.path_target = None;
+            world.players[player_index].current_path = None;
+            world.players[player_index].current_destination = None;
             (DirectedAction::None, ExecutionStatus::Failed)
         }
     } else {
         tracing::debug!(
             "execute_move_to: Player {} could not find path from {:?} to {:?}",
             player_index,
-            player.position,
+            player_pos,
             target
         );
-        execution_state.cached_path = None;
-        execution_state.path_target = None;
+        world.players[player_index].current_path = None;
+        world.players[player_index].current_destination = None;
         (DirectedAction::None, ExecutionStatus::Failed)
     }
 }
 
 pub(super) fn execute_use_adjacent(
-    world: &WorldState,
+    world: &mut WorldState,
     player_index: usize,
     target: Position,
     execution_state: &mut ActionExecutionState,
 ) -> (DirectedAction, ExecutionStatus) {
-    let player = &world.players[player_index];
-    if player.position.is_adjacent(&target) {
-        execution_state.cached_path = None;
-        execution_state.path_target = None;
-        let use_action = use_direction(player.position, target);
+    let player_pos = world.players[player_index].position;
+    if player_pos.is_adjacent(&target) {
+        world.players[player_index].current_path = None;
+        world.players[player_index].current_destination = None;
+        let use_action = use_direction(player_pos, target);
         return (use_action, ExecutionStatus::Complete);
     }
 
@@ -74,7 +75,7 @@ pub(super) fn execute_use_adjacent(
 }
 
 pub(super) fn execute_avoid(
-    world: &WorldState,
+    world: &mut WorldState,
     player_index: usize,
     danger_pos: Position,
 ) -> (DirectedAction, ExecutionStatus) {

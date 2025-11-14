@@ -6,7 +6,6 @@ use crate::swoq_interface::Inventory;
 pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
     let mut score = 0.0;
 
-
     // Goal: Reach the exit with all players (ultimate goal)
     if state.world.exit_position.is_some() {
         for (player_id, player) in state.world.players.iter().enumerate() {
@@ -19,7 +18,10 @@ pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
         }
 
         let all_at_exit = state.world.players.iter().all(|p| {
-            Some(p.position) == state.world.exit_position && p.inventory == Inventory::None // Must have empty inventory
+            // Player has exited (at -1,-1) or at exit position with empty inventory
+            (p.position == crate::infra::Position::new(-1, -1)
+                || Some(p.position) == state.world.exit_position)
+                && p.inventory == Inventory::None
         });
         if all_at_exit {
             score += 1000.0; // Massive reward for winning
@@ -109,12 +111,7 @@ pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
     }
 
     // Goal: Pick up swords (equipping players for combat)
-    let swords_picked_up = state
-        .world
-        .players
-        .iter()
-        .filter(|p| p.has_sword)
-        .count() as i32
+    let swords_picked_up = state.world.players.iter().filter(|p| p.has_sword).count() as i32
         - initial_state
             .world
             .players
@@ -140,7 +137,8 @@ pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
 
     // Small reward for idle activity (touching plates when nothing else to do)
     // Only counts once per color
-    let new_plate_colors_touched = state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;
+    let new_plate_colors_touched =
+        state.plates_touched.len() as i32 - initial_state.plates_touched.len() as i32;
     if new_plate_colors_touched > 0 {
         score += new_plate_colors_touched as f32 * 2.0; // Small reward to encourage idle exploration
     }
