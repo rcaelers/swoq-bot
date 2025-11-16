@@ -8,6 +8,7 @@ use crate::state::Map;
 struct Node {
     pos: Position,
     f_score: i32,
+    tick: i32, // Actual step count (not affected by weighted costs)
 }
 
 impl Ord for Node {
@@ -46,18 +47,21 @@ impl AStar {
         let mut open_set = BinaryHeap::new();
         let mut came_from: HashMap<Position, Position> = HashMap::new();
         let mut g_score: HashMap<Position, i32> = HashMap::new();
+        let mut tick_map: HashMap<Position, i32> = HashMap::new(); // Track actual step count
         let mut closed_set: HashSet<Position> = HashSet::new();
 
         g_score.insert(start, 0);
+        tick_map.insert(start, 0);
         open_set.push(Node {
             pos: start,
             f_score: heuristic(start, goal),
+            tick: 0,
         });
 
         const MAX_EXPANSIONS: usize = 5000;
         let mut expansions = 0;
 
-        while let Some(Node { pos: current, .. }) = open_set.pop() {
+        while let Some(Node { pos: current, tick: current_tick, .. }) = open_set.pop() {
             if current == goal {
                 return Some(reconstruct_path(&came_from, current));
             }
@@ -73,7 +77,6 @@ impl AStar {
             }
 
             let current_g_score = *g_score.get(&current).unwrap_or(&0);
-            let current_tick = current_g_score; // For backwards compatibility, tick is based on g_score
 
             for neighbor in current.neighbors() {
                 if closed_set.contains(&neighbor) {
@@ -99,9 +102,11 @@ impl AStar {
                 if tentative_g < *g_score.get(&neighbor).unwrap_or(&i32::MAX) {
                     came_from.insert(neighbor, current);
                     g_score.insert(neighbor, tentative_g);
+                    tick_map.insert(neighbor, next_tick);
                     open_set.push(Node {
                         pos: neighbor,
                         f_score: tentative_g + heuristic(neighbor, goal),
+                        tick: next_tick,
                     });
                 }
             }
