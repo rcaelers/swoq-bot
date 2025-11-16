@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::{GameState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -22,6 +22,14 @@ impl GOAPActionTrait for PickupHealthAction {
             return false;
         }
         
+        // Check if this resource is already claimed by another player
+        let claim = ResourceClaim::Health(self.health_pos);
+        let already_claimed = state.resource_claims.get(&claim)
+            .is_some_and(|&claimer| claimer != player_index);
+        if already_claimed {
+            return false;
+        }
+        
         // In 2-player mode, only allow pickup if this player has <= health than other player
         if world.players.len() == 2 {
             let other_player_index = if player_index == 0 { 1 } else { 0 };
@@ -34,7 +42,13 @@ impl GOAPActionTrait for PickupHealthAction {
         true
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+        // Claim this health pickup to prevent other players from targeting it
+        let claim = ResourceClaim::Health(self.health_pos);
+        state.resource_claims.insert(claim, player_index);
+    }
+
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         // Heal player +5 (no cap)
         let player = &mut state.world.players[player_index];
         player.health += 5;
@@ -64,8 +78,8 @@ impl GOAPActionTrait for PickupHealthAction {
         self.cached_distance + 1 // +1 to pick it up
     }
 
-    fn name(&self) -> &'static str {
-        "PickupHealth"
+    fn name(&self) -> String {
+        "PickupHealth".to_string()
     }
 
     fn reward(&self, state: &GameState, player_index: usize) -> f32 {

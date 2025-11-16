@@ -1062,6 +1062,11 @@ impl WorldState {
 
         // For player 2, avoid player 1's path or position
         if player_index == 1 && self.players.len() > 1 {
+            debug!(
+                "Pathfinding context: Player 0 at {:?}, Player 1 at {:?}",
+                self.players[0].position, self.players[1].position
+            );
+            
             // Determine what to avoid: either player 1's path, or their static position
             let (p1_path_to_avoid, is_static) =
                 if let Some(ref p1_path) = self.players[0].current_path {
@@ -1075,15 +1080,13 @@ impl WorldState {
 
             if is_static {
                 debug!(
-                    "Player 2 finding path from {:?} to {:?}, avoiding Player 1's static position {:?}",
-                    start, goal, p1_path_to_avoid[0]
+                    "Player {} (index {}) finding path from {:?} to {:?}, avoiding Player {} (index {}) static position {:?}",
+                    player_index + 1, player_index, start, goal, 1, 0, p1_path_to_avoid[0]
                 );
             } else {
                 debug!(
-                    "Player 2 finding path from {:?} to {:?}, avoiding Player 1's path (length: {})",
-                    start,
-                    goal,
-                    p1_path_to_avoid.len()
+                    "Player {} (index {}) finding path from {:?} to {:?}, avoiding Player {} (index {}) path (length: {})",
+                    player_index + 1, player_index, start, goal, 1, 0, p1_path_to_avoid.len()
                 );
             }
 

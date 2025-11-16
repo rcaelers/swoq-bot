@@ -41,7 +41,7 @@ impl GOAPActionTrait for HuntEnemyAction {
         true
     }
 
-    fn effect(&self, _state: &mut GameState, _player_index: usize) {
+    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {
         // Effect doesn't matter for terminal actions - execution handles everything
     }
 
@@ -184,8 +184,8 @@ impl GOAPActionTrait for HuntEnemyAction {
         }
     }
 
-    fn name(&self) -> &'static str {
-        "HuntEnemy"
+    fn name(&self) -> String {
+        "HuntEnemy".to_string()
     }
 
     fn reward(&self, state: &GameState, player_index: usize) -> f32 {

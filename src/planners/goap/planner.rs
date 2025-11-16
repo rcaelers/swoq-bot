@@ -126,7 +126,7 @@ impl PlanNode {
                 player_sequence.last().unwrap().name()
             );
             let previous_action = player_sequence.last().unwrap();
-            previous_action.effect(&mut simulated_state, player_id);
+            previous_action.effect_end(&mut simulated_state, player_id);
         }
         self.state_after_last_action = Some(simulated_state);
         self.player = Some(player_id);
@@ -195,6 +195,17 @@ impl Planner {
                 cost = node.cost,
                 "Evaluated state"
             );
+
+            // Log player positions and destinations
+            for (player_id, player) in new_state.world.players.iter().enumerate() {
+                tracing::info!(
+                    player_id = player_id,
+
+                    position = ?(player.position.x, player.position.y),
+                    destination = ?player.current_destination.map(|d| (d.x, d.y)),
+                    "Player state"
+                );
+            }
 
             // Select best plan by: (1) highest total_reward, (2) lowest cost as tiebreaker
             let is_better = self.best_plan.is_none()
@@ -348,6 +359,14 @@ impl Planner {
             let mut child_end_times = current_node.player_end_times.clone();
             child_end_times[idle_player] = action_end_time;
 
+            // Create child state and apply effect_start to claim resources
+            let mut child_state = current_node
+                .state_after_last_action
+                .as_ref()
+                .unwrap()
+                .clone();
+            action.effect_start(&mut child_state, idle_player);
+
             tracing::trace!(
                 player_id = idle_player,
                 candidate = candidate_idx + 1,
@@ -371,11 +390,7 @@ impl Planner {
                 player_sequences: child_sequences,
                 player_end_times: child_end_times,
                 last_processed_time: action_start_time,
-                state_before_last_action: current_node
-                    .state_after_last_action
-                    .as_ref()
-                    .unwrap()
-                    .clone(),
+                state_before_last_action: child_state,
                 state_after_last_action: None,
                 initial_state: current_node.initial_state.clone(),
                 cost: child_cost,

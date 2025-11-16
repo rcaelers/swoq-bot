@@ -39,7 +39,15 @@ use crate::swoq_interface::DirectedAction;
 /// Trait for GOAP actions defining their preconditions, effects, and execution.
 pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
     fn precondition(&self, state: &GameState, player_index: usize) -> bool;
-    fn effect(&self, state: &mut GameState, player_index: usize);
+    
+    /// Called when action is added to plan - claim resources to prevent conflicts
+    fn effect_start(&self, _state: &mut GameState, _player_index: usize) {
+        // Default: no claims needed
+    }
+    
+    /// Called when simulating action completion - apply actual state changes
+    fn effect_end(&self, state: &mut GameState, player_index: usize);
+    
     fn execute(
         &self,
         world: &mut WorldState,
@@ -47,7 +55,7 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus);
     fn cost(&self, state: &GameState, player_index: usize) -> f32;
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 
     /// Returns the expected duration in ticks for this action to complete
     fn duration(&self, state: &GameState, player_index: usize) -> u32;

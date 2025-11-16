@@ -16,7 +16,7 @@ impl GOAPActionTrait for AttackEnemyAction {
         player.has_sword && player.health >= 7 && !world.enemies.is_empty()
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         let player_pos = state.world.players[player_index].position;
 
         // Find closest enemy and attack it
@@ -123,8 +123,8 @@ impl GOAPActionTrait for AttackEnemyAction {
         }
     }
 
-    fn name(&self) -> &'static str {
-        "AttackEnemy"
+    fn name(&self) -> String {
+        "AttackEnemy".to_string()
     }
 
     fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {

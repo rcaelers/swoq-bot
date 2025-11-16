@@ -46,7 +46,7 @@ impl GOAPActionTrait for ReachExitAction {
         true
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.exit_pos;
     }
 
@@ -67,8 +67,8 @@ impl GOAPActionTrait for ReachExitAction {
         self.cached_distance
     }
 
-    fn name(&self) -> &'static str {
-        "ReachExit"
+    fn name(&self) -> String {
+        "ReachExit".to_string()
     }
 
     fn is_terminal(&self) -> bool {

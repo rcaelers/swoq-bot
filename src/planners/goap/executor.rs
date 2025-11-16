@@ -145,14 +145,14 @@ impl Executor {
         }
     }
 
-    pub fn current_goal_names(&self) -> Vec<&'static str> {
+    pub fn current_goal_names(&self) -> Vec<String> {
         self.player_states
             .iter()
             .map(|ps| {
                 if ps.current_action_index < ps.plan_sequence.len() {
                     ps.plan_sequence[ps.current_action_index].name()
                 } else {
-                    ""
+                    String::new()
                 }
             })
             .collect()
@@ -185,7 +185,7 @@ impl Executor {
         let mut is_emergency = false;
         for (player_id, player_state) in self.player_states.iter().enumerate() {
             let player = &world.players[player_id];
-            tracing::debug!("Checking player {} at position {:?}", player_id, player.position);
+            tracing::debug!("Checking replan for player {} at position {:?}", player_id, player.position);
             if !player.is_active {
                 continue;
             }

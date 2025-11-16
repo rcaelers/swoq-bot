@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::{GameState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -16,11 +16,25 @@ impl GOAPActionTrait for PickupSwordAction {
     fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
+        
+        // Check if this resource is already claimed by another player
+        let claim = ResourceClaim::Sword(self.sword_pos);
+        let already_claimed = state.resource_claims.get(&claim)
+            .is_some_and(|&claimer| claimer != player_index);
+        
         // Path reachability validated during generation
-        world.swords.get_positions().contains(&self.sword_pos) && !player.has_sword
+        world.swords.get_positions().contains(&self.sword_pos) 
+            && !player.has_sword
+            && !already_claimed
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+        // Claim this sword to prevent other players from targeting it
+        let claim = ResourceClaim::Sword(self.sword_pos);
+        state.resource_claims.insert(claim, player_index);
+    }
+
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].has_sword = true;
         state.world.players[player_index].position = self.sword_pos;
         // Remove sword from tracker and map (for planning simulation)
@@ -48,8 +62,8 @@ impl GOAPActionTrait for PickupSwordAction {
         self.cached_distance + 1 // +1 to pick it up
     }
 
-    fn name(&self) -> &'static str {
-        "PickupSword"
+    fn name(&self) -> String {
+        "PickupSword".to_string()
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
@@ -58,7 +72,9 @@ impl GOAPActionTrait for PickupSwordAction {
         let player = &world.players[player_index];
 
         for sword_pos in world.swords.get_positions() {
-            if let Some(path) = world.find_path_for_player(player_index, player.position, *sword_pos) {
+            if let Some(path) =
+                world.find_path_for_player(player_index, player.position, *sword_pos)
+            {
                 let action = PickupSwordAction {
                     sword_pos: *sword_pos,
                     cached_distance: path.len() as u32,

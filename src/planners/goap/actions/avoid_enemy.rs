@@ -13,7 +13,7 @@ impl GOAPActionTrait for AvoidEnemyAction {
         !state.world.enemies.is_empty()
     }
 
-    fn effect(&self, _state: &mut GameState, _player_index: usize) {}
+    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {}
 
     fn execute(
         &self,
@@ -59,8 +59,8 @@ impl GOAPActionTrait for AvoidEnemyAction {
         1
     }
 
-    fn name(&self) -> &'static str {
-        "AvoidEnemy"
+    fn name(&self) -> String {
+        "AvoidEnemy".to_string()
     }
 
     fn is_terminal(&self) -> bool {

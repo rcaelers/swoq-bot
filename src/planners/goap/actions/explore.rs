@@ -54,7 +54,7 @@ impl GOAPActionTrait for ExploreAction {
             .is_empty()
     }
 
-    fn effect(&self, _state: &mut GameState, _player_index: usize) {
+    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {
         // No effect during planning simulation
     }
 
@@ -172,8 +172,8 @@ impl GOAPActionTrait for ExploreAction {
         self.cached_distance
     }
 
-    fn name(&self) -> &'static str {
-        "Explore"
+    fn name(&self) -> String {
+        "Explore".to_string()
     }
 
     fn is_terminal(&self) -> bool {

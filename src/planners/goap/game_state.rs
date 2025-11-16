@@ -1,6 +1,16 @@
-use crate::infra::Color;
+use crate::infra::{Color, Position};
 use crate::state::WorldState;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ResourceClaim {
+    Key(Color),
+    Door(Color),
+    Sword(Position),
+    PressurePlate(Color),
+    Health(Position),
+    // Can add more claim types as needed
+}
 
 #[derive(Debug, Clone)]
 pub struct PlayerState {
@@ -32,6 +42,9 @@ pub struct GameState {
 
     /// Track which plate colors have been touched (for idle activity reward)
     pub plates_touched: HashSet<Color>,
+
+    /// Track which resources are claimed by which player (to prevent conflicts)
+    pub resource_claims: HashMap<ResourceClaim, usize>,
 }
 
 impl GameState {
@@ -43,6 +56,7 @@ impl GameState {
             world,
             player_states: vec![PlayerState::new(); num_players],
             plates_touched,
+            resource_claims: HashMap::new(),
         }
     }
 }

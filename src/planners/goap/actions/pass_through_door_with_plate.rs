@@ -35,7 +35,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
                 .is_some()
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.target_pos;
     }
 
@@ -66,8 +66,8 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         to_door + through_door + 3 // +3 ticks for coordination
     }
 
-    fn name(&self) -> &'static str {
-        "PassThroughDoorWithPlate"
+    fn name(&self) -> String {
+        "PassThroughDoorWithPlate".to_string()
     }
 
     fn is_pass_through_door_with_plate(&self) -> Option<(Color, Position, Position)> {

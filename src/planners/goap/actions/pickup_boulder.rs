@@ -78,7 +78,7 @@ impl GOAPActionTrait for PickupBoulderAction {
         player.inventory == Inventory::None && world.boulders.contains(&self.boulder_pos)
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         // Simulate picking up the boulder
         state.world.players[player_index].inventory = Inventory::Boulder;
         // Mark boulder as moved (it will be in player's inventory)
@@ -117,8 +117,8 @@ impl GOAPActionTrait for PickupBoulderAction {
         self.cached_distance + 1 // +1 for picking up
     }
 
-    fn name(&self) -> &'static str {
-        "PickupBoulder"
+    fn name(&self) -> String {
+        "PickupBoulder".to_string()
     }
 
     #[tracing::instrument(skip(state))]

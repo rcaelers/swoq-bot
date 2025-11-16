@@ -151,6 +151,10 @@ pub fn evaluate_state(state: &GameState, initial_state: &GameState) -> f32 {
         .filter(|p| p.inventory != Inventory::None)
         .count();
     if holding_items > 0 {
+        tracing::debug!(
+            "Disqualifying plan: {} players holding items in inventory",
+            holding_items
+        );
         return f32::NEG_INFINITY; // Never select plans with occupied inventory
     }
 

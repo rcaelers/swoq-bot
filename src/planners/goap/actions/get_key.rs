@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::{GameState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -17,15 +17,28 @@ impl GOAPActionTrait for GetKeyAction {
     fn precondition(&self, state: &GameState, player_index: usize) -> bool {
         let world = &state.world;
         let player = &world.players[player_index];
+        
+        // Check if this resource is already claimed by another player
+        let claim = ResourceClaim::Key(self.color);
+        let already_claimed = state.resource_claims.get(&claim)
+            .is_some_and(|&claimer| claimer != player_index);
+        
         // Path reachability validated during generation
         player.inventory == Inventory::None
             && world
                 .keys
                 .get_positions(self.color)
                 .is_some_and(|positions| positions.contains(&self.key_pos))
+            && !already_claimed
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+        // Claim this key to prevent other players from targeting it
+        let claim = ResourceClaim::Key(self.color);
+        state.resource_claims.insert(claim, player_index);
+    }
+
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].inventory = match self.color {
             Color::Red => Inventory::KeyRed,
             Color::Green => Inventory::KeyGreen,
@@ -58,8 +71,8 @@ impl GOAPActionTrait for GetKeyAction {
         self.cached_distance + 1 // +1 to pick it up
     }
 
-    fn name(&self) -> &'static str {
-        "GetKey"
+    fn name(&self) -> String {
+        format!("GetKey({:?})", self.color)
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

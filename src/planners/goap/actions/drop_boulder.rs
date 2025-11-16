@@ -34,7 +34,7 @@ impl GOAPActionTrait for DropBoulderAction {
         matches!(world.map.get(&self.drop_pos), Some(Tile::Empty))
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         // Drop the boulder
         state.world.players[player_index].inventory = Inventory::None;
         // Place boulder at drop position
@@ -68,8 +68,8 @@ impl GOAPActionTrait for DropBoulderAction {
         1
     }
 
-    fn name(&self) -> &'static str {
-        "DropBoulder"
+    fn name(&self) -> String {
+        "DropBoulder".to_string()
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

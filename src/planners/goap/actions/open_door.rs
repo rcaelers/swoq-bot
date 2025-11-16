@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::{GameState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -27,18 +27,31 @@ impl GOAPActionTrait for OpenDoorAction {
             .doors
             .get_positions(self.color)
             .is_some_and(|positions| positions.contains(&self.door_pos));
+        
+        // Check if this resource is already claimed by another player
+        let claim = ResourceClaim::Door(self.color);
+        let already_claimed = state.resource_claims.get(&claim)
+            .is_some_and(|&claimer| claimer != player_index);
+        
         // Path reachability validated during generation
-        has_key && door_exists
+        has_key && door_exists && !already_claimed
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+        // Claim this door to prevent other players from targeting it
+        let claim = ResourceClaim::Door(self.color);
+        state.resource_claims.insert(claim, player_index);
+    }
+
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].inventory = Inventory::None;
-        //state.world.players[player_index].position = self.door_pos;
+        state.world.players[player_index].position = self.door_pos;
         // Remove door from map (for planning simulation)
         state
             .world
             .map
             .insert(self.door_pos, crate::swoq_interface::Tile::Empty);
+        state.world.doors.remove(self.color, self.door_pos);
     }
 
     fn execute(
@@ -58,8 +71,8 @@ impl GOAPActionTrait for OpenDoorAction {
         self.cached_distance + 1 // +1 to open it
     }
 
-    fn name(&self) -> &'static str {
-        "OpenDoor"
+    fn name(&self) -> String {
+        format!("OpenDoor({:?})", self.color)
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

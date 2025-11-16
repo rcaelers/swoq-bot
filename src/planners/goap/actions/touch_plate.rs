@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::{GameState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -30,6 +30,14 @@ impl GOAPActionTrait for TouchPlateAction {
             return false;
         }
 
+        // Check if this resource is already claimed by another player
+        let claim = ResourceClaim::PressurePlate(self.plate_color);
+        let already_claimed = state.resource_claims.get(&claim)
+            .is_some_and(|&claimer| claimer != player_index);
+        if already_claimed {
+            return false;
+        }
+
         // Plate must exist
         if let Some(positions) = world.pressure_plates.get_positions(self.plate_color) {
             positions.contains(&self.plate_pos)
@@ -38,7 +46,13 @@ impl GOAPActionTrait for TouchPlateAction {
         }
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+        // Claim this pressure plate to prevent other players from targeting it
+        let claim = ResourceClaim::PressurePlate(self.plate_color);
+        state.resource_claims.insert(claim, player_index);
+    }
+
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         // Move player to plate position
         state.world.players[player_index].position = self.plate_pos;
         // Track that we touched a plate of this color (only counts once per color)
@@ -83,8 +97,8 @@ impl GOAPActionTrait for TouchPlateAction {
         self.cached_distance + 2
     }
 
-    fn name(&self) -> &'static str {
-        "TouchPlate"
+    fn name(&self) -> String {
+        "TouchPlate".to_string()
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

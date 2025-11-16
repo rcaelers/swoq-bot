@@ -25,7 +25,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
                 .is_some()
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         state.world.players[player_index].position = self.plate_pos;
     }
 
@@ -61,8 +61,8 @@ impl GOAPActionTrait for WaitOnPlateAction {
         distance + 5 // +5 ticks for partner to complete their part
     }
 
-    fn name(&self) -> &'static str {
-        "WaitOnPlate"
+    fn name(&self) -> String {
+        "WaitOnPlate".to_string()
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {

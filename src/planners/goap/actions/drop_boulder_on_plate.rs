@@ -28,7 +28,7 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
                 .is_some_and(|positions| positions.contains(&self.plate_pos))
     }
 
-    fn effect(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, state: &mut GameState, player_index: usize) {
         // Drop the boulder
         state.world.players[player_index].inventory = Inventory::None;
         // Place boulder on pressure plate
@@ -70,8 +70,8 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         self.cached_distance + 1 // +1 for dropping
     }
 
-    fn name(&self) -> &'static str {
-        "DropBoulderOnPlate"
+    fn name(&self) -> String {
+        "DropBoulderOnPlate".to_string()
     }
 
     fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
