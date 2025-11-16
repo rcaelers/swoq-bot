@@ -156,6 +156,15 @@ impl Game {
                 .on_goal_selected(player_id, goal_name, &self.world);
         }
 
+        // Update observer with current paths for visualization
+        let paths: Vec<Option<Vec<crate::infra::Position>>> = self
+            .world
+            .players
+            .iter()
+            .map(|player| player.current_path.clone())
+            .collect();
+        self.observer.on_paths_updated(paths);
+
         actions
     }
 

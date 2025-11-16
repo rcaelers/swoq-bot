@@ -13,6 +13,7 @@ mod pickup_health;
 mod pickup_sword;
 mod reach_exit;
 mod touch_plate;
+mod wait;
 mod wait_on_plate;
 
 pub use attack_enemy::AttackEnemyAction;
@@ -29,6 +30,7 @@ pub use pickup_health::PickupHealthAction;
 pub use pickup_sword::PickupSwordAction;
 pub use reach_exit::ReachExitAction;
 pub use touch_plate::TouchPlateAction;
+pub use wait::WaitAction;
 pub use wait_on_plate::WaitOnPlateAction;
 
 use crate::infra::{Color, Position};

@@ -186,6 +186,16 @@ impl Planner {
             let new_state = node.state_after_last_action.as_ref().unwrap();
 
             let state_reward = evaluate_state(new_state, &node.initial_state);
+
+            // Skip invalid plans (NEG_INFINITY) - don't store them as best_plan
+            if state_reward.is_infinite() && state_reward.is_sign_negative() {
+                tracing::debug!(
+                    total_actions = node.total_actions(),
+                    "Skipping invalid plan (NEG_INFINITY reward)"
+                );
+                return;
+            }
+
             let total_reward = state_reward + node.action_rewards;
             tracing::info!(
                 total_actions = node.total_actions(),
@@ -230,6 +240,51 @@ impl Planner {
                 self.best_plan = Some(node.clone());
             }
         }
+    }
+
+    /// Calculate wait duration for a player to synchronize with other players.
+    /// Returns Some(duration) if waiting makes sense, None otherwise.
+    fn calculate_wait_duration(current_node: &PlanNode, player_index: usize) -> Option<u32> {
+        if player_index >= current_node.player_end_times.len() {
+            return None;
+        }
+
+        // Check if any other player's last action is a Wait
+        // If so, don't allow this player to also wait (prevents deadlock)
+        for (other_player_idx, sequence) in current_node.player_sequences.iter().enumerate() {
+            if other_player_idx != player_index && !sequence.is_empty() {
+                let last_action_name = sequence.last().unwrap().name();
+                if last_action_name.starts_with("Wait") {
+                    return None;
+                }
+            }
+        }
+
+        let current_player_time = current_node.player_end_times[player_index];
+
+        // Find earliest time among OTHER players
+        let other_players_earliest_time = current_node
+            .player_end_times
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != player_index)
+            .map(|(_, &time)| time)
+            .min();
+
+        if let Some(earliest_other_time) = other_players_earliest_time {
+            // Don't wait if other player is in terminal state (u32::MAX)
+            if earliest_other_time == u32::MAX {
+                return None;
+            }
+
+            if earliest_other_time >= current_player_time {
+                // Wait until 1 tick after the other player becomes idle
+                let wait_duration = (earliest_other_time - current_player_time) + 1;
+                return Some(wait_duration);
+            }
+        }
+
+        None
     }
 
     fn generate_candidates(
@@ -302,6 +357,16 @@ impl Planner {
         let exit_count = exit_actions.len();
         candidates.extend(exit_actions);
 
+        // Generate WaitAction with context from current_node
+        let wait_action_count = if let Some(wait_duration) =
+            Self::calculate_wait_duration(current_node, player_index)
+        {
+            candidates.push(Box::new(WaitAction::new(wait_duration)));
+            1
+        } else {
+            0
+        };
+
         if !candidates.is_empty() {
             tracing::debug!(
                 player_id = player_index,
@@ -315,7 +380,8 @@ impl Planner {
                 hunt = hunt_count,
                 avoid = avoid_count,
                 plate_door = plate_door_count,
-                wait = wait_count,
+                wait_on_plate = wait_count,
+                wait_action = wait_action_count,
                 pickup_boulder = pickup_boulder_count,
                 drop_boulder = drop_boulder_count,
                 drop_on_plate = drop_on_plate_count,
@@ -461,11 +527,13 @@ impl Planner {
                 "Processing players at time point"
             );
 
-            // Update end state for ALL players at this time point to get complete state
+            // Update end state for ALL idle players at this time point to get complete state
             for &idle_player in &idle_players {
                 current_node.update_end_state(idle_player);
             }
 
+            // Always evaluate the state after updating all idle players
+            // This ensures terminal states (like all players at exit) are evaluated
             self.evaluate(&current_node);
 
             // If we've reached max depth, don't expand further
@@ -477,36 +545,91 @@ impl Planner {
                 continue;
             }
 
-            // Now expand only the FIRST idle player (to maintain linear planning)
-            let idle_player = idle_players[0];
+            // Now try to expand ONE player (trying all players in order until we find candidates)
+            // Start with idle players, then try other players if needed
+            let mut candidates = Vec::new();
+            let mut selected_player = None;
 
-            tracing::debug!(
-                player_id = idle_player,
-                end_time = current_node.player_end_times[idle_player],
-                position = ?(world.players[idle_player].position.x, world.players[idle_player].position.y),
-                player_plan = ?current_node.plan_for_player(idle_player),
-                current_plan_length = current_node.plan_for_player(idle_player).len(),
-                "Planning for player"
-            );
+            // First, try idle players (already have their end state updated)
+            for &player_id in &idle_players {
+                if current_node.is_player_terminal(player_id) {
+                    tracing::debug!(
+                        player_id = player_id,
+                        "Player has reached terminal action, skipping"
+                    );
+                    continue;
+                }
 
-            if current_node.is_player_terminal(idle_player) {
                 tracing::debug!(
-                    player_id = idle_player,
-                    "Player has reached terminal action, skipping further planning"
+                    player_id = player_id,
+                    end_time = current_node.player_end_times[player_id],
+                    position = ?(world.players[player_id].position.x, world.players[player_id].position.y),
+                    player_plan = ?current_node.plan_for_player(player_id),
+                    "Trying to generate candidates for idle player"
                 );
-                continue;
+
+                candidates = self.generate_candidates(&current_node, player_id);
+
+                if !candidates.is_empty() {
+                    selected_player = Some(player_id);
+                    tracing::debug!(
+                        player_id = player_id,
+                        candidate_count = candidates.len(),
+                        "Found candidates for idle player"
+                    );
+                    break;
+                }
             }
 
-            let candidates = self.generate_candidates(&current_node, idle_player);
+            // If no idle player has candidates, try all other players
+            if selected_player.is_none() {
+                for player_id in 0..num_players {
+                    // Skip if already tried (was in idle_players)
+                    if idle_players.contains(&player_id) {
+                        continue;
+                    }
 
-            if candidates.is_empty() {
-                tracing::debug!(
-                    player_id = idle_player,
-                    "No candidates generated for player. Finishing plan"
-                );
+                    if current_node.is_player_terminal(player_id) {
+                        tracing::debug!(
+                            player_id = player_id,
+                            "Player has reached terminal action, skipping"
+                        );
+                        continue;
+                    }
+
+                    tracing::debug!(
+                        player_id = player_id,
+                        end_time = current_node.player_end_times[player_id],
+                        position = ?(world.players[player_id].position.x, world.players[player_id].position.y),
+                        player_plan = ?current_node.plan_for_player(player_id),
+                        "Trying to generate candidates for non-idle player"
+                    );
+
+                    // Update this player's end state before generating candidates
+                    current_node.update_end_state(player_id);
+
+                    // Re-evaluate after updating this player's state
+                    self.evaluate(&current_node);
+
+                    candidates = self.generate_candidates(&current_node, player_id);
+
+                    if !candidates.is_empty() {
+                        selected_player = Some(player_id);
+                        tracing::debug!(
+                            player_id = player_id,
+                            candidate_count = candidates.len(),
+                            "Found candidates for non-idle player"
+                        );
+                        break;
+                    }
+                }
             }
 
-            self.generate_child_nodes(candidates, &current_node, idle_player);
+            if let Some(player_id) = selected_player {
+                self.generate_child_nodes(candidates, &current_node, player_id);
+            } else {
+                tracing::debug!("No candidates generated for any player, state already evaluated");
+            }
         }
 
         // Return best plan found
