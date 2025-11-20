@@ -52,9 +52,28 @@ impl GameState {
         let num_players = world.players.len();
         let plates_touched = world.plates_touched.clone();
         tracing::info!("Initializing PlannerState for {} players", num_players);
+        
+        // Initialize player states, checking for boulders in inventory
+        let mut player_states = Vec::new();
+        for player_idx in 0..num_players {
+            let mut state = PlayerState::new();
+            
+            // If player has a boulder in inventory, mark it as unexplored
+            // This ensures DropBoulder actions are generated when replanning
+            if world.players[player_idx].inventory == crate::swoq_interface::Inventory::Boulder {
+                tracing::info!(
+                    "Player {} has boulder in inventory during initialization, marking as unexplored",
+                    player_idx
+                );
+                state.boulder_is_unexplored = Some(true);
+            }
+            
+            player_states.push(state);
+        }
+        
         Self {
             world,
-            player_states: vec![PlayerState::new(); num_players],
+            player_states,
             plates_touched,
             resource_claims: HashMap::new(),
         }
