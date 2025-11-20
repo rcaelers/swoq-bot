@@ -8,7 +8,7 @@ name = "robbot"
 path = "src/main.rs"
 
 [dependencies]
-bevy = { version = "0.17.2" }
+bevy = { version = "0.17.3" }
 dotenv = "0.15.0"
 prost = "0.14.1"
 rand = "0.9.2"
