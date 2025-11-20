@@ -1,18 +1,11 @@
-mod swoq_interface {
-    tonic::include_proto!("swoq.interface");
-}
-mod infra;
-mod planners;
-mod state;
-mod ui;
-
 use dotenv::dotenv;
 use std::env;
 use std::sync::{Arc, Mutex, mpsc};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-use infra::{CompositeObserver, DefaultObserver, GameConnection, VisualizingObserver};
-use ui::{GameStateSnapshot, run_visualizer};
+use robbot::infra::{CompositeObserver, DefaultObserver, GameConnection, VisualizingObserver};
+use robbot::ui::{GameStateSnapshot, run_visualizer};
+use robbot::planners;
 
 fn get_env_var_i32(key: &str) -> Option<i32> {
     env::var(key).ok().and_then(|val| val.parse::<i32>().ok())
