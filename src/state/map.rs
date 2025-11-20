@@ -43,6 +43,11 @@ impl Map {
         self.tiles.len()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Position, &Tile)> {
         self.tiles.iter()
     }

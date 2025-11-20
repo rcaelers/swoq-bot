@@ -502,7 +502,7 @@ fn render_world_state(
     }
 
     // Render current path for Player 1 (if available)
-    if let Some(Some(path)) = snapshot.player_paths.get(0) {
+    if let Some(Some(path)) = snapshot.player_paths.first() {
         for pos in path.iter() {
             let x = center_x + (pos.x as f32 * TILE_SIZE);
             let y = center_y - (pos.y as f32 * TILE_SIZE);

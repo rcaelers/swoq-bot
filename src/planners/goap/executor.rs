@@ -251,3 +251,9 @@ impl Executor {
         (plan_complete || is_emergency, is_emergency)
     }
 }
+
+impl Default for Executor {
+    fn default() -> Self {
+        Self::new()
+    }
+}

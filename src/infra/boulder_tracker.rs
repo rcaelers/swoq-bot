@@ -22,6 +22,12 @@ pub struct BoulderTracker {
     boulders: HashMap<Position, Boulder>,
 }
 
+impl Default for BoulderTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BoulderTracker {
     pub fn new() -> Self {
         Self {
