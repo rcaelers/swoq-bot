@@ -844,13 +844,16 @@ impl WorldState {
             // (but not if the planning player is the only one on the plate)
             // Also allow doors if they are the goal destination (for OpenDoor action)
             Some(Tile::DoorRed) => {
-                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Red, planning_player_pos)
+                goal.is_some_and(|g| *pos == g)
+                    || self.is_door_open_for_player(Color::Red, planning_player_pos)
             }
             Some(Tile::DoorGreen) => {
-                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Green, planning_player_pos)
+                goal.is_some_and(|g| *pos == g)
+                    || self.is_door_open_for_player(Color::Green, planning_player_pos)
             }
             Some(Tile::DoorBlue) => {
-                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Blue, planning_player_pos)
+                goal.is_some_and(|g| *pos == g)
+                    || self.is_door_open_for_player(Color::Blue, planning_player_pos)
             }
             // Keys: always avoid unless it's the destination
             Some(
@@ -1269,13 +1272,26 @@ impl WorldState {
             .enumerate()
             .filter_map(|(idx, player)| {
                 if !player.is_active {
+                    tracing::debug!(
+                        "Skipping inactive player {} at {:?}",
+                        idx,
+                        player.position
+                    );
                     return None;
                 }
 
-                player.current_destination.map(|goal| Agent {
-                    id: idx,
-                    start: player.position,
-                    goal,
+                player.current_destination.map(|goal| {
+                    tracing::debug!(
+                        "Adding agent {} with destination {:?} (current pos: {:?})",
+                        idx,
+                        goal,
+                        player.position
+                    );
+                    Agent {
+                        id: idx,
+                        start: player.position,
+                        goal,
+                    }
                 })
             })
             .collect();
@@ -1285,8 +1301,20 @@ impl WorldState {
             return;
         }
 
+        // Create a mapping from agent_id to player for the walkability closure
+        // This is needed because agent_id is the original player index, not the filtered agent index
+        let agent_to_player: HashMap<usize, &PlayerState> = agents
+            .iter()
+            .map(|agent| (agent.id, &self.players[agent.id]))
+            .collect();
+
         // Run CBS to find collision-free paths with per-agent walkability
         match CBS::find_paths(&self.map, &agents, |pos, agent_id, goal| {
+            // Get the player for this agent
+            let player = agent_to_player
+                .get(&agent_id)
+                .expect("Agent ID should map to a player");
+
             match self.map.get(pos) {
                 // Always walkable
                 Some(Tile::Empty)
@@ -1297,16 +1325,16 @@ impl WorldState {
                 | Some(Tile::Treasure) => true,
                 // Doors are walkable if open OR if it's THIS agent's goal and they have the key
                 Some(Tile::DoorRed) => {
-                    self.is_door_open(Color::Red) 
-                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Red))
+                    self.is_door_open(Color::Red)
+                        || (*pos == goal && self.has_key(player, Color::Red))
                 }
                 Some(Tile::DoorGreen) => {
                     self.is_door_open(Color::Green)
-                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Green))
+                        || (*pos == goal && self.has_key(player, Color::Green))
                 }
                 Some(Tile::DoorBlue) => {
                     self.is_door_open(Color::Blue)
-                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Blue))
+                        || (*pos == goal && self.has_key(player, Color::Blue))
                 }
                 // Walls and Unknown are never walkable
                 Some(Tile::Wall) => false,
@@ -1318,9 +1346,9 @@ impl WorldState {
             Some(paths) => {
                 debug!("CBS found paths for {} agents", paths.len());
 
-                // Update each player's current_path
-                for (idx, path) in paths.into_iter().enumerate() {
-                    if let Some(player) = self.players.get_mut(idx) {
+                // Update each player's current_path using the agent ID
+                for (agent, path) in agents.iter().zip(paths.into_iter()) {
+                    if let Some(player) = self.players.get_mut(agent.id) {
                         player.current_path = Some(path);
                     }
                 }

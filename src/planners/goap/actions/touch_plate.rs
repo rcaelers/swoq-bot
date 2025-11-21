@@ -13,13 +13,6 @@ pub struct TouchPlateAction {
     pub cached_distance: u32, // Cached path distance to plate
 }
 
-impl TouchPlateAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-        world.find_path(player.position, self.plate_pos).is_some()
-    }
-}
-
 impl GOAPActionTrait for TouchPlateAction {
     fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
@@ -74,8 +67,13 @@ impl GOAPActionTrait for TouchPlateAction {
         state.plates_touched.insert(self.plate_color);
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.plate_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+        if world.find_path(player.position, self.plate_pos).is_some() {
+            Some(self.plate_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -84,11 +82,6 @@ impl GOAPActionTrait for TouchPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         let player = &world.players[player_index];
         let player_pos = player.position;
 

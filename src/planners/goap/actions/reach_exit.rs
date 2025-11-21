@@ -12,31 +12,13 @@ pub struct ReachExitAction {
     pub cached_distance: u32,
 }
 
-impl ReachExitAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-
-        // If there are 2 players, both must be able to reach the exit
-        if world.players.len() == 2 {
-            let other_player_index = 1 - player_index;
-            let other_player = &world.players[other_player_index];
-
-            // Check if other player can reach the exit
-            if world
-                .find_path(other_player.position, self.exit_pos)
-                .is_none()
-            {
-                return false;
-            }
-        }
-
-        // Validate path exists
-        world.find_path(player.position, self.exit_pos).is_some()
-    }
-}
-
 impl GOAPActionTrait for ReachExitAction {
-    fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
+    fn precondition(
+        &self,
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> bool {
         let player = &world.players[player_index];
 
         // Player already at exit or has exited
@@ -76,8 +58,24 @@ impl GOAPActionTrait for ReachExitAction {
         world.players[player_index].position = self.exit_pos;
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.exit_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+
+        // If there are 2 players, both must be able to reach the exit
+        if world.players.len() == 2 {
+            let other_player_index = 1 - player_index;
+            let other_player = &world.players[other_player_index];
+
+            // Check if other player can reach the exit
+            world.find_path(other_player.position, self.exit_pos)?;
+        }
+
+        // Check if this player can reach the exit
+        if world.find_path(player.position, self.exit_pos).is_some() {
+            Some(self.exit_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -86,11 +84,6 @@ impl GOAPActionTrait for ReachExitAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         execute_move_to(world, player_index, self.exit_pos, execution_state)
     }
 

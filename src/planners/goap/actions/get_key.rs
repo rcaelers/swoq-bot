@@ -13,15 +13,6 @@ pub struct GetKeyAction {
     pub cached_distance: u32,
 }
 
-impl GetKeyAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        // Check if key is reachable (might be blocked until other player opens a door)
-        world
-            .find_path(world.players[player_index].position, self.key_pos)
-            .is_some()
-    }
-}
-
 impl GOAPActionTrait for GetKeyAction {
     fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
@@ -77,8 +68,14 @@ impl GOAPActionTrait for GetKeyAction {
         world.keys.remove(self.color, self.key_pos);
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.key_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        // Check if key is reachable (might be blocked until other player opens a door)
+        let player = &world.players[player_index];
+        if world.find_path(player.position, self.key_pos).is_some() {
+            Some(self.key_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -87,10 +84,6 @@ impl GOAPActionTrait for GetKeyAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
 
         execute_move_to(world, player_index, self.key_pos, execution_state)
     }

@@ -146,7 +146,16 @@ fn find_path_with_constraints(
     constraints: &[Constraint],
     is_walkable: &dyn Fn(&Position, usize, Position) -> bool,
 ) -> Option<Vec<Position>> {
+    tracing::trace!(
+        "CBS A*: Finding path for agent {} from {:?} to {:?} with {} constraints",
+        agent_id,
+        start,
+        goal,
+        constraints.len()
+    );
+    
     if start == goal {
+        tracing::trace!("CBS A*: Agent {} already at goal", agent_id);
         return Some(vec![goal]);
     }
 
@@ -172,6 +181,11 @@ fn find_path_with_constraints(
     }) = open_set.pop()
     {
         if current == goal {
+            tracing::trace!(
+                "CBS A*: Agent {} reached goal after {} expansions",
+                agent_id,
+                expansions
+            );
             return Some(reconstruct_path(&came_from, current));
         }
 
@@ -182,6 +196,13 @@ fn find_path_with_constraints(
 
         expansions += 1;
         if expansions > MAX_EXPANSIONS {
+            tracing::warn!(
+                "CBS A*: Agent {} exceeded MAX_EXPANSIONS ({}) - from {:?} to {:?}",
+                agent_id,
+                MAX_EXPANSIONS,
+                start,
+                goal
+            );
             return None;
         }
 
@@ -274,6 +295,30 @@ impl CBS {
     where
         F: Fn(&Position, usize, Position) -> bool,
     {
+        tracing::debug!("CBS: Starting with {} agents", agents.len());
+        for agent in agents.iter() {
+            tracing::debug!(
+                "CBS: Agent {} - start: {:?}, goal: {:?}",
+                agent.id,
+                agent.start,
+                agent.goal
+            );
+        }
+
+        // Check for agents with same goal
+        for i in 0..agents.len() {
+            for j in (i + 1)..agents.len() {
+                if agents[i].goal == agents[j].goal {
+                    tracing::debug!(
+                        "CBS: Agents {} and {} have the same goal {:?}",
+                        agents[i].id,
+                        agents[j].id,
+                        agents[i].goal
+                    );
+                }
+            }
+        }
+
         let num_agents = agents.len();
         let mut open = BinaryHeap::new();
 
@@ -281,11 +326,24 @@ impl CBS {
         let mut root = CTNode::new(num_agents);
 
         // Find initial paths for all agents (no constraints)
-        let env = PathfindingEnv { map, is_walkable: &is_walkable };
+        let env = PathfindingEnv {
+            map,
+            is_walkable: &is_walkable,
+         };
+        
+        tracing::debug!("CBS: Finding initial paths for all agents");
         for agent in agents {
-            Self::replan_and_update(&mut root, agent, &env)?;
+            tracing::debug!("CBS: Finding initial path for agent {}", agent.id);
+            match Self::replan_and_update(&mut root, agent, &env) {
+                Some(_) => tracing::debug!("CBS: Initial path found for agent {}", agent.id),
+                None => {
+                    tracing::warn!("CBS: No initial path for agent {} (start: {:?}, goal: {:?})", agent.id, agent.start, agent.goal);
+                    return None;
+                }
+            }
         }
 
+        tracing::debug!("CBS: All initial paths found, starting conflict resolution");
         open.push(root);
 
         const MAX_CT_NODES: usize = 1000;
@@ -293,29 +351,49 @@ impl CBS {
 
         while let Some(node) = open.pop() {
             nodes_expanded += 1;
+            tracing::debug!(
+                "CBS: Expanding CT node {}/{} with cost {}",
+                nodes_expanded,
+                MAX_CT_NODES,
+                node.cost
+            );
+            
             if nodes_expanded > MAX_CT_NODES {
+                tracing::warn!("CBS: Timeout - expanded {} nodes", nodes_expanded);
                 return None; // Timeout
             }
 
             // Check for conflicts
-            if let Some(conflict) = Self::find_first_conflict(&node.solution) {
+            if let Some(conflict) = Self::find_first_conflict(&node.solution, agents) {
+                tracing::debug!(
+                    "CBS: Found conflict between agents {} and {} at {:?} (time: {}, type: {:?})",
+                    conflict.agent1,
+                    conflict.agent2,
+                    conflict.pos,
+                    conflict.time,
+                    conflict.conflict_type
+                );
+                
                 // Create two child nodes with new constraints
                 let child_nodes = Self::create_child_nodes(&node, &conflict, &env, agents);
+                tracing::debug!("CBS: Created {} child nodes", child_nodes.len());
 
                 for child in child_nodes {
                     open.push(child);
                 }
             } else {
                 // No conflicts - solution found!
+                tracing::info!("CBS: Solution found after expanding {} nodes", nodes_expanded);
                 return Some(node.solution);
             }
         }
 
+        tracing::warn!("CBS: No solution found after expanding {} nodes", nodes_expanded);
         None // No solution found
     }
 
     /// Detect the first conflict in the current solution
-    fn find_first_conflict(solution: &[Vec<Position>]) -> Option<Conflict> {
+    fn find_first_conflict(solution: &[Vec<Position>], agents: &[Agent]) -> Option<Conflict> {
         let num_agents = solution.len();
 
         // Find maximum path length
@@ -331,6 +409,18 @@ impl CBS {
 
                     // Vertex conflict: same position at same time
                     if pos_i == pos_j {
+                        // Allow same-goal conflicts: if both agents have the same goal
+                        // and the conflict is at that goal, skip it (sequential execution handles this)
+                        let agent_i = &agents[i];
+                        let agent_j = &agents[j];
+                        if agent_i.goal == agent_j.goal && pos_i == agent_i.goal {
+                            tracing::debug!(
+                                "CBS: Ignoring same-goal vertex conflict at {:?} for agents {} and {}",
+                                pos_i, i, j
+                            );
+                            continue;
+                        }
+                        
                         return Some(Conflict {
                             agent1: i,
                             agent2: j,
@@ -483,6 +573,13 @@ impl CBS {
 
     /// Replan path for agent and update node's cost and solution
     fn replan_and_update(node: &mut CTNode, agent: &Agent, env: &PathfindingEnv) -> Option<()> {
+        tracing::trace!(
+            "CBS: Replanning for agent {} (start: {:?}, goal: {:?})",
+            agent.id,
+            agent.start,
+            agent.goal
+        );
+        
         // Get constraints for this agent
         let agent_constraints: Vec<Constraint> = node
             .constraints
@@ -494,6 +591,12 @@ impl CBS {
             .cloned()
             .collect();
 
+        tracing::trace!(
+            "CBS: Agent {} has {} constraints",
+            agent.id,
+            agent_constraints.len()
+        );
+
         // Replan path for this agent with new constraints
         let new_path = find_path_with_constraints(
             env.map,
@@ -504,15 +607,18 @@ impl CBS {
             &env.is_walkable,
         )?;
 
+        tracing::trace!(
+            "CBS: Agent {} new path length: {}",
+            agent.id,
+            new_path.len()
+        );
+
         // Update solution and cost
         node.cost = node.cost - node.solution[agent.id].len() as i32 + new_path.len() as i32;
         node.solution[agent.id] = new_path;
 
         Some(())
     }
-
-
-
 }
 
 #[cfg(test)]
@@ -544,7 +650,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "CBS should find a solution");
@@ -615,7 +723,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "CBS should find paths around obstacle");
@@ -667,7 +777,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // This should fail or both agents stay at same location
@@ -698,7 +810,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // May or may not find solution depending on constraints - just verify it doesn't crash
@@ -728,7 +842,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "CBS should find a solution avoiding edge conflicts");
@@ -777,7 +893,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // This should fail as there's no way for agents to pass each other in a 1-wide corridor
@@ -809,7 +927,9 @@ mod tests {
             });
         }
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // Should either find solution or timeout - just verify it returns something
@@ -841,7 +961,9 @@ mod tests {
             goal: Position { x: 99, y: 99 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // May find path or hit max expansions - either is acceptable
@@ -864,7 +986,9 @@ mod tests {
             goal: Position { x: 4, y: 4 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Single agent should always find a path");
@@ -898,7 +1022,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Should handle agents already at goal");
@@ -923,7 +1049,9 @@ mod tests {
             goal: Position { x: 1, y: 1 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Should find path in small map");
@@ -946,7 +1074,9 @@ mod tests {
             goal: Position { x: 2, y: 1 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Should find path around obstacle");
@@ -981,7 +1111,9 @@ mod tests {
             goal: Position { x: 1, y: 1 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_none(), "Should fail when goal is unreachable");
@@ -1003,7 +1135,9 @@ mod tests {
             goal: Position { x: 9, y: 9 },
         }];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Should find path");
@@ -1033,7 +1167,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         // Should either find solution or timeout
@@ -1062,7 +1198,9 @@ mod tests {
             },
         ];
 
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
 
@@ -1112,7 +1250,9 @@ mod tests {
         }
 
         let agents: Vec<Agent> = vec![];
-        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool { matches!(map.get(pos), Some(Tile::Empty)) };
+        let is_walkable = |pos: &Position, _agent_id: usize, _goal: Position| -> bool {
+            matches!(map.get(pos), Some(Tile::Empty))
+        };
 
         let result = CBS::find_paths(&map, &agents, is_walkable);
         assert!(result.is_some(), "Should handle empty agent list");

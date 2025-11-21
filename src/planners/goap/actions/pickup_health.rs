@@ -12,13 +12,6 @@ pub struct PickupHealthAction {
     pub cached_distance: u32,
 }
 
-impl PickupHealthAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-        world.find_path(player.position, self.health_pos).is_some()
-    }
-}
-
 impl GOAPActionTrait for PickupHealthAction {
     fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
@@ -75,8 +68,14 @@ impl GOAPActionTrait for PickupHealthAction {
             .insert(self.health_pos, crate::swoq_interface::Tile::Empty);
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.health_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        // Check if health is still reachable
+        let player = &world.players[player_index];
+        if world.find_path(player.position, self.health_pos).is_some() {
+            Some(self.health_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -85,11 +84,6 @@ impl GOAPActionTrait for PickupHealthAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         execute_move_to(world, player_index, self.health_pos, execution_state)
     }
 

@@ -145,6 +145,8 @@ impl Game {
             let plans = planner.plan(&self.world);
             self.executor.set_plans(plans);
             tracing::info!("GOAP: Done replanning");
+        } else {
+            tracing::info!("GOAP: No replanning needed");
         }
 
         // Execute current plans

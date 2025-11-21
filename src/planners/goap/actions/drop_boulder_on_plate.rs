@@ -14,15 +14,6 @@ pub struct DropBoulderOnPlateAction {
     pub cached_distance: u32,          // Cached path distance to target_adjacent_pos
 }
 
-impl DropBoulderOnPlateAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-        world
-            .find_path(player.position, self.target_adjacent_pos)
-            .is_some()
-    }
-}
-
 impl GOAPActionTrait for DropBoulderOnPlateAction {
     fn precondition(
         &self,
@@ -61,8 +52,13 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         state.player_states[player_index].boulder_is_unexplored = None;
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.target_adjacent_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+        if world.find_path(player.position, self.target_adjacent_pos).is_some() {
+            Some(self.target_adjacent_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -71,11 +67,6 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         let player = &world.players[player_index];
         let player_pos = player.position;
 

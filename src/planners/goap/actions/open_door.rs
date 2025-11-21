@@ -13,17 +13,6 @@ pub struct OpenDoorAction {
     pub cached_distance: u32,
 }
 
-impl OpenDoorAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-        player
-            .position
-            .neighbors()
-            .iter()
-            .any(|adj| *adj == self.door_pos || world.find_path(player.position, *adj).is_some())
-    }
-}
-
 impl GOAPActionTrait for OpenDoorAction {
     fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
@@ -89,8 +78,20 @@ impl GOAPActionTrait for OpenDoorAction {
         world.doors.remove(self.color, self.door_pos);
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.door_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+        // Check if any adjacent position to the door is reachable
+        let reachable = player
+            .position
+            .neighbors()
+            .iter()
+            .any(|adj| *adj == self.door_pos || world.find_path(player.position, *adj).is_some());
+        
+        if reachable {
+            Some(self.door_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -99,11 +100,6 @@ impl GOAPActionTrait for OpenDoorAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         execute_use_adjacent(world, player_index, self.door_pos, execution_state)
     }
 

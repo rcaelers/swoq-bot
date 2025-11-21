@@ -49,14 +49,45 @@ impl Executor {
                 continue;
             }
 
-            let current_action = &mut player_state.plan_sequence[player_state.current_action_index];
+            let plan_len = player_state.plan_sequence.len();
+            let current_index = player_state.current_action_index;
+            let current_action = &mut player_state.plan_sequence[current_index];
+            tracing::info!(
+                "GOAP: Player {} preparing action [{}/{}]: {}",
+                player_id,
+                current_index + 1,
+                plan_len,
+                current_action.name()
+            );
+
             let destination = current_action.prepare(world, player_id);
-            world.players[player_id].current_destination = destination;
+
+            // If prepare returns None, the action cannot be executed (e.g., destination unreachable)
+            // Mark it as failed and clear the destination
+            if destination.is_none() {
+                let action_name = current_action.name();
+                let action_index = player_state.current_action_index;
+                let plan_len = player_state.plan_sequence.len();
+                tracing::warn!(
+                    "GOAP: Player {} action on hold (no destination) [{}/{}]: {}",
+                    player_id,
+                    action_index + 1,
+                    plan_len,
+                    action_name
+                );
+                world.players[player_id].current_destination = None;
+                // The action will fail in execute phase
+            } else {
+                world.players[player_id].current_destination = destination;
+            }
         }
 
+        tracing::debug!("GOAP: Completed prepare phase");
         // Phase 2: CBS - compute collision-free paths for all players
         world.compute_cbs_paths();
 
+        tracing::debug!("GOAP: Completed CBS phase");
+        tracing::debug!("GOAP: Starting execute phase");
         // Phase 3: Execute - all actions use CBS paths
         let mut actions = Vec::new();
         let mut has_executable_action = false;
@@ -220,7 +251,11 @@ impl Executor {
         let mut is_emergency = false;
         for (player_id, player_state) in self.player_states.iter().enumerate() {
             let player = &world.players[player_id];
-            tracing::debug!("Checking replan for player {} at position {:?}", player_id, player.position);
+            tracing::debug!(
+                "Checking replan for player {} at position {:?}",
+                player_id,
+                player.position
+            );
             if !player.is_active {
                 continue;
             }

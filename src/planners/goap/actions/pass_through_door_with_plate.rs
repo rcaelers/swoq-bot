@@ -14,25 +14,6 @@ pub struct PassThroughDoorWithPlateAction {
     pub plate_pos: Position,
 }
 
-impl PassThroughDoorWithPlateAction {
-    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
-        let player = &world.players[player_index];
-        let door_exists = world
-            .doors
-            .get_positions(self.door_color)
-            .is_some_and(|positions| positions.contains(&self.door_pos));
-        let plate_exists = world
-            .pressure_plates
-            .get_positions(self.door_color)
-            .is_some_and(|positions| positions.contains(&self.plate_pos));
-        let door_not_open = !world.is_door_open(self.door_color);
-        door_exists
-            && plate_exists
-            && door_not_open
-            && world.find_path(player.position, self.target_pos).is_some()
-    }
-}
-
 impl GOAPActionTrait for PassThroughDoorWithPlateAction {
     fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
@@ -55,8 +36,26 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         world.players[player_index].position = self.target_pos;
     }
 
-    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
-        Some(self.target_pos)
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+        
+        // Check runtime conditions: door/plate still exist, door not already open, path reachable
+        let door_exists = world
+            .doors
+            .get_positions(self.door_color)
+            .is_some_and(|positions| positions.contains(&self.door_pos));
+        let plate_exists = world
+            .pressure_plates
+            .get_positions(self.door_color)
+            .is_some_and(|positions| positions.contains(&self.plate_pos));
+        let door_not_open = !world.is_door_open(self.door_color);
+        let reachable = world.find_path(player.position, self.target_pos).is_some();
+        
+        if door_exists && plate_exists && door_not_open && reachable {
+            Some(self.target_pos)
+        } else {
+            None
+        }
     }
 
     fn execute(
@@ -65,11 +64,6 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
-        // Check precondition before executing
-        if !self.check_execute_precondition(world, player_index) {
-            return (DirectedAction::None, ExecutionStatus::Wait);
-        }
-
         execute_move_to(world, player_index, self.target_pos, execution_state)
     }
 
