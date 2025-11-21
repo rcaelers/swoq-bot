@@ -1,4 +1,5 @@
-use crate::planners::goap::game_state::GameState;
+use crate::infra::Position;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -6,15 +7,19 @@ use super::helpers::execute_move_to;
 use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 
 #[derive(Debug, Clone)]
-pub struct HuntEnemyAction {
-    // No cached target - determined during execution
+pub struct HuntEnemyAction {}
+
+impl HuntEnemyAction {
 }
 
 impl GOAPActionTrait for HuntEnemyAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(
+        &self,
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> bool {
         let player = &world.players[player_index];
-
         // Only hunt when maze is fully explored
         if !player.unexplored_frontier.is_empty() {
             return false;
@@ -41,8 +46,56 @@ impl GOAPActionTrait for HuntEnemyAction {
         true
     }
 
-    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {
+    fn effect_end(
+        &self,
+        _world: &mut WorldState,
+        _state: &mut PlanningState,
+        _player_index: usize,
+    ) {
         // Effect doesn't matter for terminal actions - execution handles everything
+    }
+
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        let player = &world.players[player_index];
+
+        // Check if we have a current destination and haven't reached it yet
+        if let Some(current_dest) = player.current_destination
+            && player.position != current_dest
+        {
+            // Still moving to current target
+            return Some(current_dest);
+        }
+        // Reached target, find new one below
+
+        // Priority 1: Known enemies
+        if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
+            return Some(closest_enemy);
+        }
+
+        // Priority 2: Potential enemy locations
+        if let Some(closest_potential) = world
+            .potential_enemy_locations
+            .iter()
+            .min_by_key(|pos| player.position.distance(pos))
+            .copied()
+        {
+            return Some(closest_potential);
+        }
+
+        // Priority 3: Random walkable location
+        use rand::Rng;
+        let mut rng = rand::rng();
+        for _ in 0..100 {
+            let random_x = rng.random_range(0..world.map.width);
+            let random_y = rng.random_range(0..world.map.height);
+            let random_pos = Position::new(random_x, random_y);
+
+            if world.is_walkable(&random_pos, None) {
+                return Some(random_pos);
+            }
+        }
+
+        None
     }
 
     fn execute(
@@ -63,80 +116,42 @@ impl GOAPActionTrait for HuntEnemyAction {
             return (DirectedAction::None, ExecutionStatus::Complete);
         }
 
-        // Find closest enemy in current world state (enemies move!)
-        if let Some(closest_enemy_pos) = world.enemies.closest_to(player.position) {
-            let dist = world.path_distance_to_enemy(player.position, closest_enemy_pos);
-
-            // Stop when enemy is in range (≤3 tiles) - let AttackEnemy handle it
-            if dist <= 3 {
-                tracing::debug!(
-                    "HuntEnemy: Player {} found enemy at {:?} within range ({}), completing",
-                    player_index,
-                    closest_enemy_pos,
-                    dist
-                );
-                return (DirectedAction::None, ExecutionStatus::Complete);
-            }
-
+        // Get target from current_destination (set by prepare)
+        let Some(target) = player.current_destination else {
             tracing::debug!(
-                "HuntEnemy: Player {} moving towards enemy at {:?}, distance {}",
-                player_index,
-                closest_enemy_pos,
-                dist
+                "HuntEnemy: Player {} has no current destination, completing",
+                player_index
             );
-            // Move towards the enemy (but don't attack)
-            return execute_move_to(world, player_index, closest_enemy_pos, execution_state);
-        } else {
-            tracing::debug!("HuntEnemy: Player {} found no enemies", player_index);
-        }
+            return (DirectedAction::None, ExecutionStatus::Complete);
+        };
 
-        // No enemies visible - move to potential enemy location
-        if let Some(closest_potential) = world
-            .potential_enemy_locations
-            .iter()
-            .min_by_key(|pos| player.position.distance(pos))
-            .copied()
-        {
+        // Check if enemy is in attack range
+        let enemy_in_range = world
+            .enemies
+            .closest_to(player.position)
+            .map(|pos| world.path_distance_to_enemy(player.position, pos) <= 3)
+            .unwrap_or(false);
+
+        if enemy_in_range {
             tracing::debug!(
-                "HuntEnemy: Player {} moving to potential enemy location at {:?}",
-                player_index,
-                closest_potential
+                "HuntEnemy: Player {} found enemy within attack range, completing",
+                player_index
             );
-            return execute_move_to(world, player_index, closest_potential, execution_state);
+            return (DirectedAction::None, ExecutionStatus::Complete);
         }
 
-        // No potential locations - pick a random walkable location
-        use rand::Rng;
-        let mut rng = rand::rng();
-        for _ in 0..100 {
-            let random_x = rng.random_range(0..world.map.width);
-            let random_y = rng.random_range(0..world.map.height);
-            let random_pos = crate::infra::Position::new(random_x, random_y);
-
-            if world.is_walkable(&random_pos, random_pos) {
-                tracing::debug!(
-                    "HuntEnemy: Player {} moving to random location at {:?}",
-                    player_index,
-                    random_pos
-                );
-                return execute_move_to(world, player_index, random_pos, execution_state);
-            }
-        }
-
-        // No walkable random location found - action complete
-        tracing::debug!("HuntEnemy: Player {} has no valid targets, completing", player_index);
-        (DirectedAction::None, ExecutionStatus::Complete)
+        execute_move_to(world, player_index, target, execution_state)
     }
 
-    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
-        let world = &state.world;
+    fn cost(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        let world = &world;
         let player = &world.players[player_index];
 
         // Calculate cost based on what we would target
         let (distance, is_potential) =
             if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
                 let dist = world
-                    .find_path_for_player(player_index, player.position, closest_enemy)
+                    .find_path(player.position, closest_enemy)
                     .map(|p| (p.len() as u32).saturating_sub(1))
                     .unwrap_or(100);
                 (dist, false)
@@ -147,7 +162,7 @@ impl GOAPActionTrait for HuntEnemyAction {
                 .copied()
             {
                 let dist = world
-                    .find_path_for_player(player_index, player.position, closest_potential)
+                    .find_path(player.position, closest_potential)
                     .map(|p| (p.len() as u32).saturating_sub(1))
                     .unwrap_or(100);
                 (dist, true)
@@ -159,14 +174,14 @@ impl GOAPActionTrait for HuntEnemyAction {
         base_cost + distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
-        let world = &state.world;
+    fn duration(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> u32 {
+        let world = &world;
         let player = &world.players[player_index];
 
         // Calculate duration based on what we would target
         if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
             world
-                .find_path_for_player(player_index, player.position, closest_enemy)
+                .find_path(player.position, closest_enemy)
                 .map(|p| p.len() as u32)
                 .unwrap_or(100)
         } else if let Some(closest_potential) = world
@@ -176,7 +191,7 @@ impl GOAPActionTrait for HuntEnemyAction {
             .copied()
         {
             world
-                .find_path_for_player(player_index, player.position, closest_potential)
+                .find_path(player.position, closest_potential)
                 .map(|p| p.len() as u32)
                 .unwrap_or(100)
         } else {
@@ -188,9 +203,8 @@ impl GOAPActionTrait for HuntEnemyAction {
         "HuntEnemy".to_string()
     }
 
-    fn reward(&self, state: &GameState, player_index: usize) -> f32 {
-        let player = &state.world.players[player_index];
-        let world = &state.world;
+    fn reward(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        let player = &world.players[player_index];
 
         // Reward for clearing enemies, higher when maze is fully explored
         let base_reward = if player.unexplored_frontier.is_empty() {
@@ -218,9 +232,13 @@ impl GOAPActionTrait for HuntEnemyAction {
         true
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Only generate when fully explored
@@ -234,7 +252,7 @@ impl GOAPActionTrait for HuntEnemyAction {
         }
 
         let action = HuntEnemyAction {};
-        if action.precondition(state, player_index) {
+        if action.precondition(world, state, player_index) {
             actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
         }
 

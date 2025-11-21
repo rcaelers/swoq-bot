@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
 
 use crate::infra::{
-    AStar, BoulderTracker, Bounds, Color, ColoredItemTracker, ItemTracker, Position,
+    AStar, Agent, BoulderTracker, Bounds, CBS, Color, ColoredItemTracker, ItemTracker, Position,
 };
 use crate::state::{Map, PlayerState};
 use crate::swoq_interface::{Inventory, State, Tile};
@@ -640,7 +640,7 @@ impl WorldState {
                     if *pos == goal_pos {
                         return true;
                     }
-                    self.is_walkable(pos, goal_pos)
+                    self.is_walkable(pos, Some(goal_pos))
                 },
                 |_pos, _goal_pos, _tick| 1, // Uniform cost - no enemy avoidance
             );
@@ -801,9 +801,8 @@ impl WorldState {
     }
 
     /// Check if a position is walkable, considering pressure plate states
-    /// The `planning_player_pos` parameter should be the current position of the player
-    /// for which we're planning a path (not their destination)
-    pub fn is_walkable(&self, pos: &Position, goal: Position) -> bool {
+    /// The `goal` parameter is optional - if None, treats items/doors/etc as non-walkable
+    pub fn is_walkable(&self, pos: &Position, goal: Option<Position>) -> bool {
         self.is_walkable_for_player(pos, goal, None)
     }
 
@@ -825,10 +824,11 @@ impl WorldState {
     /// Check if a position is walkable for a specific player
     /// If planning_player_pos is provided, doors won't be considered open if that player
     /// is the only one on the pressure plate (since they'll leave it to move)
+    /// If goal is None, items/doors/unknown tiles are treated as non-walkable
     pub fn is_walkable_for_player(
         &self,
         pos: &Position,
-        goal: Position,
+        goal: Option<Position>,
         planning_player_pos: Option<Position>,
     ) -> bool {
         match self.map.get(pos) {
@@ -844,13 +844,13 @@ impl WorldState {
             // (but not if the planning player is the only one on the plate)
             // Also allow doors if they are the goal destination (for OpenDoor action)
             Some(Tile::DoorRed) => {
-                *pos == goal || self.is_door_open_for_player(Color::Red, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Red, planning_player_pos)
             }
             Some(Tile::DoorGreen) => {
-                *pos == goal || self.is_door_open_for_player(Color::Green, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Green, planning_player_pos)
             }
             Some(Tile::DoorBlue) => {
-                *pos == goal || self.is_door_open_for_player(Color::Blue, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open_for_player(Color::Blue, planning_player_pos)
             }
             // Keys: always avoid unless it's the destination
             Some(
@@ -864,9 +864,9 @@ impl WorldState {
                 | Tile::Unknown,
             ) => {
                 // Allow walking on the destination key/item/enemy, avoid all others
-                *pos == goal
+                goal.is_some_and(|g| *pos == g)
             }
-            None => *pos == goal,
+            None => goal.is_some_and(|g| *pos == g),
             _ => false,
         }
     }
@@ -958,7 +958,7 @@ impl WorldState {
             &self.map,
             start,
             goal,
-            |pos, goal_pos, _tick| self.is_walkable(pos, goal_pos),
+            |pos, goal_pos, _tick| self.is_walkable(pos, Some(goal_pos)),
             |pos, _goal_pos, _tick| self.movement_cost(pos),
         )
     }
@@ -981,7 +981,7 @@ impl WorldState {
     }
 
     /// Find a path that avoids colliding with another player's planned path
-    pub fn find_path_avoiding_player(
+    fn find_path_avoiding_player(
         &self,
         start: Position,
         goal: Position,
@@ -1011,7 +1011,7 @@ impl WorldState {
             |pos, goal_pos, tick| {
                 // First check basic walkability (including door states)
                 // Pass the planning player's position so doors they're holding open aren't considered walkable
-                if !self.is_walkable_for_player(pos, goal_pos, Some(planning_player_pos)) {
+                if !self.is_walkable_for_player(pos, Some(goal_pos), Some(planning_player_pos)) {
                     return false;
                 }
 
@@ -1066,7 +1066,7 @@ impl WorldState {
                 "Pathfinding context: Player 0 at {:?}, Player 1 at {:?}",
                 self.players[0].position, self.players[1].position
             );
-            
+
             // Determine what to avoid: either player 1's path, or their static position
             let (p1_path_to_avoid, is_static) =
                 if let Some(ref p1_path) = self.players[0].current_path {
@@ -1081,12 +1081,24 @@ impl WorldState {
             if is_static {
                 debug!(
                     "Player {} (index {}) finding path from {:?} to {:?}, avoiding Player {} (index {}) static position {:?}",
-                    player_index + 1, player_index, start, goal, 1, 0, p1_path_to_avoid[0]
+                    player_index + 1,
+                    player_index,
+                    start,
+                    goal,
+                    1,
+                    0,
+                    p1_path_to_avoid[0]
                 );
             } else {
                 debug!(
                     "Player {} (index {}) finding path from {:?} to {:?}, avoiding Player {} (index {}) path (length: {})",
-                    player_index + 1, player_index, start, goal, 1, 0, p1_path_to_avoid.len()
+                    player_index + 1,
+                    player_index,
+                    start,
+                    goal,
+                    1,
+                    0,
+                    p1_path_to_avoid.len()
                 );
             }
 
@@ -1127,7 +1139,7 @@ impl WorldState {
                         && random_pos.y < self.map.height
                         && self.is_walkable_for_player(
                             &random_pos,
-                            random_pos,
+                            Some(random_pos),
                             Some(planning_player_pos),
                         )
                     {
@@ -1244,5 +1256,83 @@ impl WorldState {
             "Frontier computation complete"
         );
         frontier
+    }
+
+    /// Compute CBS paths for all active players with destinations
+    /// Updates each player's current_path field with collision-free paths
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub fn compute_cbs_paths(&mut self) {
+        // Collect agents from players with destinations
+        let agents: Vec<Agent> = self
+            .players
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, player)| {
+                if !player.is_active {
+                    return None;
+                }
+
+                player.current_destination.map(|goal| Agent {
+                    id: idx,
+                    start: player.position,
+                    goal,
+                })
+            })
+            .collect();
+
+        if agents.is_empty() {
+            debug!("No agents with destinations, skipping CBS");
+            return;
+        }
+
+        // Run CBS to find collision-free paths with per-agent walkability
+        match CBS::find_paths(&self.map, &agents, |pos, agent_id, goal| {
+            match self.map.get(pos) {
+                // Always walkable
+                Some(Tile::Empty)
+                | Some(Tile::Player)
+                | Some(Tile::PressurePlateRed)
+                | Some(Tile::PressurePlateGreen)
+                | Some(Tile::PressurePlateBlue)
+                | Some(Tile::Treasure) => true,
+                // Doors are walkable if open OR if it's THIS agent's goal and they have the key
+                Some(Tile::DoorRed) => {
+                    self.is_door_open(Color::Red) 
+                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Red))
+                }
+                Some(Tile::DoorGreen) => {
+                    self.is_door_open(Color::Green)
+                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Green))
+                }
+                Some(Tile::DoorBlue) => {
+                    self.is_door_open(Color::Blue)
+                        || (*pos == goal && self.has_key(&self.players[agent_id], Color::Blue))
+                }
+                // Walls and Unknown are never walkable
+                Some(Tile::Wall) => false,
+                // All other tiles are walkable if they're THIS agent's goal
+                // This includes: Keys, Sword, Health, Exit, Enemy, Boss, Boulder, etc.
+                _ => *pos == goal,
+            }
+        }) {
+            Some(paths) => {
+                debug!("CBS found paths for {} agents", paths.len());
+
+                // Update each player's current_path
+                for (idx, path) in paths.into_iter().enumerate() {
+                    if let Some(player) = self.players.get_mut(idx) {
+                        player.current_path = Some(path);
+                    }
+                }
+            }
+            None => {
+                warn!("CBS failed to find collision-free paths, clearing paths");
+
+                // Clear all paths on failure
+                for player in &mut self.players {
+                    player.current_path = None;
+                }
+            }
+        }
     }
 }

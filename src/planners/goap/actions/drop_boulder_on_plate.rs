@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position, use_direction};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -14,33 +14,55 @@ pub struct DropBoulderOnPlateAction {
     pub cached_distance: u32,          // Cached path distance to target_adjacent_pos
 }
 
+impl DropBoulderOnPlateAction {
+    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
+        let player = &world.players[player_index];
+        world
+            .find_path(player.position, self.target_adjacent_pos)
+            .is_some()
+    }
+}
+
 impl GOAPActionTrait for DropBoulderOnPlateAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(
+        &self,
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> bool {
         let player = &world.players[player_index];
 
-        // Player must have boulder and pressure plate must exist
-        // Path reachability validated during generation
-        player.inventory == Inventory::Boulder
+        // For planning: player must have boulder
+        if player.inventory != Inventory::Boulder {
+            return false;
+        }
+
+        // Pressure plate must exist and be reachable
+        world
+            .pressure_plates
+            .get_positions(self.plate_color)
+            .is_some_and(|positions| positions.contains(&self.plate_pos))
             && world
-                .pressure_plates
-                .get_positions(self.plate_color)
-                .is_some_and(|positions| positions.contains(&self.plate_pos))
+                .find_path(player.position, self.target_adjacent_pos)
+                .is_some()
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, world: &mut WorldState, state: &mut PlanningState, player_index: usize) {
         // Drop the boulder
-        state.world.players[player_index].inventory = Inventory::None;
+        world.players[player_index].inventory = Inventory::None;
         // Place boulder on pressure plate
-        state
-            .world
+        world
             .map
             .insert(self.plate_pos, crate::swoq_interface::Tile::Boulder);
-        state.world.boulders.add_boulder(self.plate_pos, true); // Mark as moved
+        world.boulders.add_boulder(self.plate_pos, true); // Mark as moved
         // Move player to the pre-determined adjacent position
-        state.world.players[player_index].position = self.target_adjacent_pos;
+        world.players[player_index].position = self.target_adjacent_pos;
         // Clear boulder tracking
         state.player_states[player_index].boulder_is_unexplored = None;
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.target_adjacent_pos)
     }
 
     fn execute(
@@ -49,6 +71,11 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
+        // Check precondition before executing
+        if !self.check_execute_precondition(world, player_index) {
+            return (DirectedAction::None, ExecutionStatus::Wait);
+        }
+
         let player = &world.players[player_index];
         let player_pos = player.position;
 
@@ -62,11 +89,11 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         execute_move_to(world, player_index, self.target_adjacent_pos, execution_state)
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         1.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 for dropping
     }
 
@@ -74,9 +101,13 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
         "DropBoulderOnPlate".to_string()
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Only generate if player has a boulder
@@ -90,17 +121,18 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
                 for &plate_pos in plate_positions {
                     // Find the closest reachable adjacent position
                     let mut best_option: Option<(Position, u32)> = None;
-                    
+
                     for &adj in plate_pos.neighbors().iter() {
-                        if world.is_walkable(&adj, adj)
-                            && let Some(path) = world.find_path_for_player(player_index, player.position, adj) {
-                                let distance = path.len() as u32;
-                                if best_option.is_none() || distance < best_option.unwrap().1 {
-                                    best_option = Some((adj, distance));
-                                }
+                        if world.is_walkable(&adj, None)
+                            && let Some(path) = world.find_path(player.position, adj)
+                        {
+                            let distance = path.len() as u32;
+                            if best_option.is_none() || distance < best_option.unwrap().1 {
+                                best_option = Some((adj, distance));
                             }
+                        }
                     }
-                    
+
                     if let Some((target_adjacent_pos, cached_distance)) = best_option {
                         let action = DropBoulderOnPlateAction {
                             plate_pos,
@@ -108,7 +140,7 @@ impl GOAPActionTrait for DropBoulderOnPlateAction {
                             target_adjacent_pos,
                             cached_distance,
                         };
-                        if action.precondition(state, player_index) {
+                        if action.precondition(world, state, player_index) {
                             actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                         }
                     }

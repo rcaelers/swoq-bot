@@ -1,4 +1,5 @@
-use crate::planners::goap::game_state::GameState;
+use crate::infra::Position;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -8,33 +9,45 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 #[derive(Debug, Clone)]
 pub struct AttackEnemyAction {}
 
+impl AttackEnemyAction {
+}
+
 impl GOAPActionTrait for AttackEnemyAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(
+        &self,
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> bool {
         let player = &world.players[player_index];
-        // Need sword, health >= 7 to attack, and enemies must exist
+        // For planning: need sword, health >= 7 to attack, and enemies must exist
         player.has_sword && player.health >= 7 && !world.enemies.is_empty()
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
-        let player_pos = state.world.players[player_index].position;
+    fn effect_end(&self, world: &mut WorldState, _state: &mut PlanningState, player_index: usize) {
+        let player_pos = world.players[player_index].position;
 
         // Find closest enemy and attack it
-        if let Some(closest_enemy) = state.world.enemies.closest_to(player_pos) {
+        if let Some(closest_enemy) = world.enemies.closest_to(player_pos) {
             // Remove enemy from map (for planning simulation)
-            state
-                .world
+            world
                 .map
                 .insert(closest_enemy, crate::swoq_interface::Tile::Empty);
 
             // Remove enemy from tracking
-            state.world.enemies.remove(closest_enemy);
+            world.enemies.remove(closest_enemy);
 
             // Move player to enemy position
-            state.world.players[player_index].position = closest_enemy;
+            world.players[player_index].position = closest_enemy;
             // Enemy hits back - lose 6 health
-            state.world.players[player_index].health -= 6;
+            world.players[player_index].health -= 6;
         }
+    }
+
+    fn prepare(&mut self, world: &mut WorldState, player_index: usize) -> Option<Position> {
+        // Set destination to closest enemy
+        let player_pos = world.players[player_index].position;
+        world.enemies.closest_to(player_pos)
     }
 
     fn execute(
@@ -93,13 +106,13 @@ impl GOAPActionTrait for AttackEnemyAction {
         }
     }
 
-    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
-        let world = &state.world;
+    fn cost(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        let world = &world;
         let player = &world.players[player_index];
 
         let distance = if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
             world
-                .find_path_for_player(player_index, player.position, closest_enemy)
+                .find_path(player.position, closest_enemy)
                 .map(|p| (p.len() as u32).saturating_sub(1))
                 .unwrap_or(100)
         } else {
@@ -109,13 +122,13 @@ impl GOAPActionTrait for AttackEnemyAction {
         15.0 + distance as f32 * 0.1
     }
 
-    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
-        let world = &state.world;
+    fn duration(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> u32 {
+        let world = &world;
         let player = &world.players[player_index];
 
         if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
             world
-                .find_path_for_player(player_index, player.position, closest_enemy)
+                .find_path(player.position, closest_enemy)
                 .map(|p| p.len() as u32)
                 .unwrap_or(100)
         } else {
@@ -127,7 +140,7 @@ impl GOAPActionTrait for AttackEnemyAction {
         "AttackEnemy".to_string()
     }
 
-    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn reward(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Positive reward for attacking nearby enemies when armed
         15.0
     }
@@ -136,9 +149,13 @@ impl GOAPActionTrait for AttackEnemyAction {
         true
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Only generate attack actions if player has a sword and health >= 7
@@ -173,7 +190,7 @@ impl GOAPActionTrait for AttackEnemyAction {
 
         if has_enemy_in_range {
             let action = AttackEnemyAction {};
-            if action.precondition(state, player_index) {
+            if action.precondition(world, state, player_index) {
                 actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
             }
         }

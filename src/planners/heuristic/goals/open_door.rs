@@ -39,7 +39,7 @@ impl ExecuteGoal for OpenDoorGoal {
                     continue;
                 }
 
-                if !state.world.is_walkable(&neighbor, neighbor) {
+                if !state.world.is_walkable(&neighbor, None) {
                     continue;
                 }
 

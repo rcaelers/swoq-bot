@@ -224,7 +224,7 @@ impl KeyAndDoorStrategy {
                                     if is_matching_door {
                                         true
                                     } else {
-                                        state.world.is_walkable(pos, goal)
+                                        state.world.is_walkable(pos, Some(goal))
                                     }
                                 },
                             )

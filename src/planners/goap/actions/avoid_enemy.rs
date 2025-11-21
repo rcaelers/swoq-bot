@@ -1,4 +1,4 @@
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -8,12 +8,15 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 #[derive(Debug, Clone)]
 pub struct AvoidEnemyAction {}
 
+impl AvoidEnemyAction {
+}
+
 impl GOAPActionTrait for AvoidEnemyAction {
-    fn precondition(&self, state: &GameState, _player_index: usize) -> bool {
-        !state.world.enemies.is_empty()
+    fn precondition(&self, world: &WorldState, _state: &PlanningState, _player_index: usize) -> bool {
+        !world.enemies.is_empty()
     }
 
-    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {}
+    fn effect_end(&self, _world: &mut WorldState, _state: &mut PlanningState, _player_index: usize) {}
 
     fn execute(
         &self,
@@ -26,13 +29,13 @@ impl GOAPActionTrait for AvoidEnemyAction {
         // Find closest enemy in current world state (enemies move!)
         if let Some(closest_enemy_pos) = world.enemies.closest_to(player.position) {
             let distance = world.path_distance_to_enemy(player.position, closest_enemy_pos);
-            
+
             // Continue avoiding until enemy is at least 3 tiles away
             if distance > 3 {
                 // Safe distance reached
                 return (DirectedAction::None, ExecutionStatus::Complete);
             }
-            
+
             let (action, _status) = execute_avoid(world, player_index, closest_enemy_pos);
             (action, ExecutionStatus::InProgress)
         } else {
@@ -41,20 +44,17 @@ impl GOAPActionTrait for AvoidEnemyAction {
         }
     }
 
-    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
-        let player = &state.world.players[player_index];
-        let distance = if let Some(closest_enemy) = state.world.enemies.closest_to(player.position)
-        {
-            state
-                .world
-                .path_distance_to_enemy(player.position, closest_enemy)
+    fn cost(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        let player = &world.players[player_index];
+        let distance = if let Some(closest_enemy) = world.enemies.closest_to(player.position) {
+            world.path_distance_to_enemy(player.position, closest_enemy)
         } else {
             1000
         };
         5.0 + distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         // Avoidance is immediate, takes 1 tick to move away
         1
     }
@@ -67,7 +67,7 @@ impl GOAPActionTrait for AvoidEnemyAction {
         true
     }
 
-    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn reward(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Positive reward for avoiding enemies when vulnerable
         2000.0
     }
@@ -76,9 +76,12 @@ impl GOAPActionTrait for AvoidEnemyAction {
         true
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
         let player = &world.players[player_index];
 
         // Only generate avoid actions if player doesn't have a sword
@@ -94,7 +97,7 @@ impl GOAPActionTrait for AvoidEnemyAction {
 
         if has_close_enemy {
             let action = AvoidEnemyAction {};
-            if action.precondition(state, player_index) {
+            if action.precondition(world, state, player_index) {
                 actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
             }
         }

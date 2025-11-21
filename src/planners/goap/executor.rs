@@ -37,6 +37,27 @@ impl Executor {
     }
 
     pub fn step(&mut self, world: &mut WorldState) -> Option<Vec<DirectedAction>> {
+        // Phase 1: Prepare - all actions set their destinations
+        for (player_id, player_state) in self.player_states.iter_mut().enumerate() {
+            if !world.players[player_id].is_active {
+                continue;
+            }
+
+            if player_state.plan_sequence.is_empty()
+                || player_state.current_action_index >= player_state.plan_sequence.len()
+            {
+                continue;
+            }
+
+            let current_action = &mut player_state.plan_sequence[player_state.current_action_index];
+            let destination = current_action.prepare(world, player_id);
+            world.players[player_id].current_destination = destination;
+        }
+
+        // Phase 2: CBS - compute collision-free paths for all players
+        world.compute_cbs_paths();
+
+        // Phase 3: Execute - all actions use CBS paths
         let mut actions = Vec::new();
         let mut has_executable_action = false;
 
@@ -124,6 +145,20 @@ impl Executor {
                     ExecutionStatus::InProgress => {
                         // Continue executing - send action to server
                         final_action = action;
+                        found_executable_action = true;
+                        break;
+                    }
+
+                    ExecutionStatus::Wait => {
+                        tracing::debug!(
+                            "GOAP: Player {} action waiting for precondition [{}/{}]: {:?}",
+                            player_id,
+                            player_state.current_action_index + 1,
+                            player_state.plan_sequence.len(),
+                            current_action
+                        );
+                        // Wait for precondition to become true
+                        final_action = DirectedAction::None;
                         found_executable_action = true;
                         break;
                     }

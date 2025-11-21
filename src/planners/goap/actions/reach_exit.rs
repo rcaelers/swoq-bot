@@ -1,5 +1,5 @@
 use crate::infra::Position;
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -12,9 +12,31 @@ pub struct ReachExitAction {
     pub cached_distance: u32,
 }
 
+impl ReachExitAction {
+    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
+        let player = &world.players[player_index];
+
+        // If there are 2 players, both must be able to reach the exit
+        if world.players.len() == 2 {
+            let other_player_index = 1 - player_index;
+            let other_player = &world.players[other_player_index];
+
+            // Check if other player can reach the exit
+            if world
+                .find_path(other_player.position, self.exit_pos)
+                .is_none()
+            {
+                return false;
+            }
+        }
+
+        // Validate path exists
+        world.find_path(player.position, self.exit_pos).is_some()
+    }
+}
+
 impl GOAPActionTrait for ReachExitAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
 
         // Player already at exit or has exited
@@ -22,10 +44,13 @@ impl GOAPActionTrait for ReachExitAction {
             return false;
         }
 
-        // Player must have empty inventory and path reachability validated during generation
-        if player.inventory != crate::swoq_interface::Inventory::None
-            || world.exit_position != Some(self.exit_pos)
-        {
+        // For planning: player must have empty inventory
+        if player.inventory != crate::swoq_interface::Inventory::None {
+            return false;
+        }
+
+        // Exit must exist
+        if world.exit_position != Some(self.exit_pos) {
             return false;
         }
 
@@ -36,18 +61,23 @@ impl GOAPActionTrait for ReachExitAction {
 
             // Check if other player can reach the exit
             if world
-                .find_path_for_player(other_player_index, other_player.position, self.exit_pos)
+                .find_path(other_player.position, self.exit_pos)
                 .is_none()
             {
                 return false;
             }
         }
 
-        true
+        // Validate path exists
+        world.find_path(player.position, self.exit_pos).is_some()
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
-        state.world.players[player_index].position = self.exit_pos;
+    fn effect_end(&self, world: &mut WorldState, _state: &mut PlanningState, player_index: usize) {
+        world.players[player_index].position = self.exit_pos;
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.exit_pos)
     }
 
     fn execute(
@@ -56,14 +86,19 @@ impl GOAPActionTrait for ReachExitAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
+        // Check precondition before executing
+        if !self.check_execute_precondition(world, player_index) {
+            return (DirectedAction::None, ExecutionStatus::Wait);
+        }
+
         execute_move_to(world, player_index, self.exit_pos, execution_state)
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         self.cached_distance
     }
 
@@ -75,9 +110,13 @@ impl GOAPActionTrait for ReachExitAction {
         true
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Don't generate if player is already at exit position or has exited (-1, -1)
@@ -91,13 +130,12 @@ impl GOAPActionTrait for ReachExitAction {
                 return actions;
             }
 
-            if let Some(path) = world.find_path_for_player(player_index, player.position, exit_pos)
-            {
+            if let Some(path) = world.find_path(player.position, exit_pos) {
                 let action = ReachExitAction {
                     exit_pos,
                     cached_distance: path.len() as u32,
                 };
-                if action.precondition(state, player_index) {
+                if action.precondition(world, state, player_index) {
                     actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                 }
             }

@@ -1,5 +1,5 @@
 use crate::planners::goap::actions::helpers::execute_move_to;
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -7,7 +7,7 @@ use super::{ActionExecutionState, ExecutionStatus, GOAPActionTrait};
 
 #[derive(Debug, Clone)]
 pub struct ExploreAction {
-    pub cached_distance: u32, // Distance to nearest frontier
+    pub cached_distance: u32, // Distance to nearest frontier (for cost/duration)
 }
 
 impl ExploreAction {
@@ -48,14 +48,74 @@ impl ExploreAction {
 }
 
 impl GOAPActionTrait for ExploreAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        !state.world.players[player_index]
-            .unexplored_frontier
-            .is_empty()
+    fn precondition(
+        &self,
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> bool {
+        !world.players[player_index].unexplored_frontier.is_empty()
     }
 
-    fn effect_end(&self, _state: &mut GameState, _player_index: usize) {
+    fn effect_end(
+        &self,
+        _world: &mut WorldState,
+        _state: &mut PlanningState,
+        _player_index: usize,
+    ) {
         // No effect during planning simulation
+    }
+
+    fn prepare(
+        &mut self,
+        world: &mut WorldState,
+        player_index: usize,
+    ) -> Option<crate::infra::Position> {
+        let player = &world.players[player_index];
+        let player_pos = player.position;
+        let current_dest = player.current_destination;
+        let frontier = player.unexplored_frontier.clone();
+
+        // Check if we have a current destination
+        if let Some(current_dest) = current_dest {
+            // Check if destination is still valid (unknown, Unknown, or empty, and not reached yet)
+            if player_pos != current_dest {
+                if let Some(tile) = world.map.get(&current_dest) {
+                    // Tile is known - check if it's Unknown or empty
+                    if matches!(
+                        tile,
+                        crate::swoq_interface::Tile::Unknown | crate::swoq_interface::Tile::Empty
+                    ) {
+                        // Check if still reachable
+                        if world.find_path(player_pos, current_dest).is_some() {
+                            return Some(current_dest);
+                        }
+                        // No longer reachable, find new target
+                    }
+                    // Tile became non-empty and not Unknown, find new target
+                } else {
+                    // Tile is not in map (unknown), check if reachable
+                    if world.find_path(player_pos, current_dest).is_some() {
+                        return Some(current_dest);
+                    }
+                    // No longer reachable, find new target
+                }
+            }
+            // Destination reached or became non-empty/non-Unknown, find new one
+        }
+
+        // Find nearest reachable frontier as new target
+        // Iterate through frontier sorted by distance and return first reachable one
+        let mut frontier_by_distance: Vec<_> = frontier
+            .iter()
+            .map(|&pos| (player_pos.distance(&pos), pos))
+            .collect();
+        frontier_by_distance.sort_by_key(|(dist, _)| *dist);
+
+        frontier_by_distance
+            .into_iter()
+            .map(|(_, frontier_pos)| frontier_pos)
+            .find(|&frontier_pos| world.find_path(player_pos, frontier_pos).is_some())
     }
 
     fn execute(
@@ -79,7 +139,16 @@ impl GOAPActionTrait for ExploreAction {
             return (DirectedAction::None, ExecutionStatus::Complete);
         }
 
-        // Initialize object counts on first execution
+        // Get target from current_destination (set by prepare)
+        let Some(target) = player.current_destination else {
+            tracing::debug!(
+                "Explore: Player {} has no current destination, completing",
+                player_index
+            );
+            return (DirectedAction::None, ExecutionStatus::Complete);
+        };
+
+        // Initialize on first execution
         if execution_state.initial_object_counts.is_none() {
             let initial = Self::count_objects(world);
             tracing::debug!(
@@ -138,37 +207,23 @@ impl GOAPActionTrait for ExploreAction {
                     exit_discovered = current_counts.exit_visible && !initial_counts.exit_visible,
                     "NEW OBJECTS DISCOVERED! Completing exploration action"
                 );
-                execution_state.exploration_target = None;
                 execution_state.initial_object_counts = None;
                 return (DirectedAction::None, ExecutionStatus::Complete);
             }
         }
 
-        // Determine target: use cached target if still valid, otherwise find nearest
-        let needs_new_target = execution_state.exploration_target.is_none_or(|pos| {
-            !player.unexplored_frontier.contains(&pos) || !world.is_walkable(&pos, pos)
-        });
-
-        if needs_new_target {
-            let nearest = Self::find_nearest_frontier(player).unwrap();
-            execution_state.exploration_target = Some(nearest);
-        }
-
-        let target = execution_state.exploration_target.unwrap();
-
         let result = execute_move_to(world, player_index, target, execution_state);
         if result.1 == ExecutionStatus::Complete || result.1 == ExecutionStatus::Failed {
-            execution_state.exploration_target = None;
             execution_state.initial_object_counts = None;
         }
         result
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         1.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         self.cached_distance
     }
 
@@ -180,23 +235,27 @@ impl GOAPActionTrait for ExploreAction {
         true
     }
 
-    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn reward(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Small reward for exploration action to encourage discovering new areas
         1.0
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
-        let world = &state.world;
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
+        let world = &world;
         let player = &world.players[player_index];
 
-        // Find nearest frontier and cache the distance
+        // Find nearest frontier and cache the distance for cost/duration
         if let Some(nearest) = Self::find_nearest_frontier(player)
-            && let Some(path) = world.find_path_for_player(player_index, player.position, nearest)
+            && let Some(path) = world.find_path(player.position, nearest)
         {
             let action = ExploreAction {
                 cached_distance: path.len() as u32,
             };
-            if action.precondition(state, player_index) {
+            if action.precondition(world, state, player_index) {
                 return vec![Box::new(action)];
             }
         }

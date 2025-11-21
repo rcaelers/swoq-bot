@@ -1,4 +1,5 @@
 mod boulder_tracker;
+mod cbs;
 mod composite_observer;
 mod default_observer;
 mod game_observer;
@@ -9,6 +10,7 @@ mod types;
 mod visualizing_observer;
 
 pub use boulder_tracker::BoulderTracker;
+pub use cbs::{Agent, CBS};
 pub use composite_observer::CompositeObserver;
 pub use default_observer::DefaultObserver;
 pub use game_observer::GameObserver;
@@ -54,4 +56,3 @@ pub fn use_direction(from: Position, to: Position) -> DirectedAction {
         DirectedAction::UseWest
     }
 }
-

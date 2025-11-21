@@ -57,7 +57,7 @@ impl ExecuteGoal for DropBoulderGoal {
                 ),
                 _ => continue,
             };
-            if state.world.is_walkable(&next_pos, next_pos) {
+            if state.world.is_walkable(&next_pos, None) {
                 return Some(direction);
             }
         }

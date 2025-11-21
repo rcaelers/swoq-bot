@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -14,9 +14,8 @@ pub struct PassThroughDoorWithPlateAction {
     pub plate_pos: Position,
 }
 
-impl GOAPActionTrait for PassThroughDoorWithPlateAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+impl PassThroughDoorWithPlateAction {
+    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
         let player = &world.players[player_index];
         let door_exists = world
             .doors
@@ -30,13 +29,34 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         door_exists
             && plate_exists
             && door_not_open
-            && world
-                .find_path_for_player(player_index, player.position, self.target_pos)
-                .is_some()
+            && world.find_path(player.position, self.target_pos).is_some()
+    }
+}
+
+impl GOAPActionTrait for PassThroughDoorWithPlateAction {
+    fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
+        let player = &world.players[player_index];
+        let door_exists = world
+            .doors
+            .get_positions(self.door_color)
+            .is_some_and(|positions| positions.contains(&self.door_pos));
+        let plate_exists = world
+            .pressure_plates
+            .get_positions(self.door_color)
+            .is_some_and(|positions| positions.contains(&self.plate_pos));
+        let door_not_open = !world.is_door_open(self.door_color);
+        door_exists
+            && plate_exists
+            && door_not_open
+            && world.find_path(player.position, self.target_pos).is_some()
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
-        state.world.players[player_index].position = self.target_pos;
+    fn effect_end(&self, world: &mut WorldState, _state: &mut PlanningState, player_index: usize) {
+        world.players[player_index].position = self.target_pos;
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.target_pos)
     }
 
     fn execute(
@@ -45,22 +65,25 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
+        // Check precondition before executing
+        if !self.check_execute_precondition(world, player_index) {
+            return (DirectedAction::None, ExecutionStatus::Wait);
+        }
+
         execute_move_to(world, player_index, self.target_pos, execution_state)
     }
 
-    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
-        10.0 + state
-            .world
-            .path_distance(state.world.players[player_index].position, self.door_pos)
+    fn cost(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        10.0 + world
+            .path_distance(world.players[player_index].position, self.door_pos)
             .unwrap_or(1000) as f32
             * 0.1
     }
 
-    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
+    fn duration(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> u32 {
         // Distance to door + distance through door to target + coordination overhead
-        let to_door = state
-            .world
-            .path_distance(state.world.players[player_index].position, self.door_pos)
+        let to_door = world
+            .path_distance(world.players[player_index].position, self.door_pos)
             .unwrap_or(1000) as u32;
         let through_door = self.door_pos.distance(&self.target_pos) as u32;
         to_door + through_door + 3 // +3 ticks for coordination
@@ -74,9 +97,13 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
         Some((self.door_color, self.door_pos, self.plate_pos))
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
 
         for color in [
             crate::infra::Color::Red,
@@ -109,7 +136,7 @@ impl GOAPActionTrait for PassThroughDoorWithPlateAction {
                                     target_pos,
                                     plate_pos: *plate_pos,
                                 };
-                                if action.precondition(state, player_index) {
+                                if action.precondition(world, state, player_index) {
                                     actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                                 }
                             }

@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
@@ -12,21 +12,25 @@ pub struct WaitOnPlateAction {
     pub plate_pos: Position,
 }
 
+impl WaitOnPlateAction {
+}
+
 impl GOAPActionTrait for WaitOnPlateAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
         world
             .pressure_plates
             .get_positions(self.color)
             .is_some_and(|positions| positions.contains(&self.plate_pos))
-            && world
-                .find_path_for_player(player_index, player.position, self.plate_pos)
-                .is_some()
+            && world.find_path(player.position, self.plate_pos).is_some()
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
-        state.world.players[player_index].position = self.plate_pos;
+    fn effect_end(&self, world: &mut WorldState, _state: &mut PlanningState, player_index: usize) {
+        world.players[player_index].position = self.plate_pos;
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.plate_pos)
     }
 
     fn execute(
@@ -43,20 +47,18 @@ impl GOAPActionTrait for WaitOnPlateAction {
         }
     }
 
-    fn cost(&self, state: &GameState, player_index: usize) -> f32 {
-        5.0 + state
-            .world
-            .path_distance(state.world.players[player_index].position, self.plate_pos)
+    fn cost(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> f32 {
+        5.0 + world
+            .path_distance(world.players[player_index].position, self.plate_pos)
             .unwrap_or(1000) as f32
             * 0.1
     }
 
-    fn duration(&self, state: &GameState, player_index: usize) -> u32 {
+    fn duration(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> u32 {
         // Distance to plate + time waiting (for synchronized multi-player actions)
         // We estimate the synchronized partner will need this long
-        let distance = state
-            .world
-            .path_distance(state.world.players[player_index].position, self.plate_pos)
+        let distance = world
+            .path_distance(world.players[player_index].position, self.plate_pos)
             .unwrap_or(1000) as u32;
         distance + 5 // +5 ticks for partner to complete their part
     }
@@ -65,9 +67,13 @@ impl GOAPActionTrait for WaitOnPlateAction {
         "WaitOnPlate".to_string()
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
 
         for color in [
             crate::infra::Color::Red,
@@ -80,7 +86,7 @@ impl GOAPActionTrait for WaitOnPlateAction {
                         color,
                         plate_pos: *plate_pos,
                     };
-                    if action.precondition(state, player_index) {
+                    if action.precondition(world, state, player_index) {
                         actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                     }
                 }

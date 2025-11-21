@@ -19,7 +19,7 @@ impl ExecuteGoal for KillEnemyGoal {
 
         // Move adjacent to enemy
         for adjacent in enemy_pos.neighbors() {
-            if state.world.is_walkable(&adjacent, adjacent)
+            if state.world.is_walkable(&adjacent, None)
                 && let Some(path) =
                     state
                         .world

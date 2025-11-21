@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::{GameState, ResourceClaim};
+use crate::planners::goap::game_state::{PlanningState, ResourceClaim};
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -13,50 +13,69 @@ pub struct TouchPlateAction {
     pub cached_distance: u32, // Cached path distance to plate
 }
 
+impl TouchPlateAction {
+    fn check_execute_precondition(&self, world: &WorldState, player_index: usize) -> bool {
+        let player = &world.players[player_index];
+        world.find_path(player.position, self.plate_pos).is_some()
+    }
+}
+
 impl GOAPActionTrait for TouchPlateAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
 
-        // Only when player has nothing else to do:
+        // For planning: only when player has nothing else to do
         // - Empty inventory
-        // - No unexplored frontier
         if player.inventory != Inventory::None {
             return false;
         }
 
-        // No unexplored frontier
+        // - No unexplored frontier
         if !player.unexplored_frontier.is_empty() {
+            return false;
+        }
+
+        // Plate must exist and be reachable
+        if let Some(positions) = world.pressure_plates.get_positions(self.plate_color) {
+            if !positions.contains(&self.plate_pos)
+                || world.find_path(player.position, self.plate_pos).is_none()
+            {
+                return false;
+            }
+        } else {
             return false;
         }
 
         // Check if this resource is already claimed by another player
         let claim = ResourceClaim::PressurePlate(self.plate_color);
-        let already_claimed = state.resource_claims.get(&claim)
+        let already_claimed = state
+            .resource_claims
+            .get(&claim)
             .is_some_and(|&claimer| claimer != player_index);
-        if already_claimed {
-            return false;
-        }
 
-        // Plate must exist
-        if let Some(positions) = world.pressure_plates.get_positions(self.plate_color) {
-            positions.contains(&self.plate_pos)
-        } else {
-            false
-        }
+        !already_claimed
     }
 
-    fn effect_start(&self, state: &mut GameState, player_index: usize) {
+    fn effect_start(
+        &self,
+        _world: &mut WorldState,
+        state: &mut PlanningState,
+        player_index: usize,
+    ) {
         // Claim this pressure plate to prevent other players from targeting it
         let claim = ResourceClaim::PressurePlate(self.plate_color);
         state.resource_claims.insert(claim, player_index);
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, world: &mut WorldState, state: &mut PlanningState, player_index: usize) {
         // Move player to plate position
-        state.world.players[player_index].position = self.plate_pos;
+        world.players[player_index].position = self.plate_pos;
         // Track that we touched a plate of this color (only counts once per color)
         state.plates_touched.insert(self.plate_color);
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.plate_pos)
     }
 
     fn execute(
@@ -65,6 +84,11 @@ impl GOAPActionTrait for TouchPlateAction {
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus) {
+        // Check precondition before executing
+        if !self.check_execute_precondition(world, player_index) {
+            return (DirectedAction::None, ExecutionStatus::Wait);
+        }
+
         let player = &world.players[player_index];
         let player_pos = player.position;
 
@@ -87,12 +111,12 @@ impl GOAPActionTrait for TouchPlateAction {
         execute_move_to(world, player_index, self.plate_pos, execution_state)
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Low cost with small bonus to encourage this when idle
         self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         // Distance to reach plate + 2 ticks to stand on it
         self.cached_distance + 2
     }
@@ -101,9 +125,13 @@ impl GOAPActionTrait for TouchPlateAction {
         "TouchPlate".to_string()
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Only generate if player has nothing to do
@@ -130,21 +158,19 @@ impl GOAPActionTrait for TouchPlateAction {
 
             if let Some(plate_positions) = world.pressure_plates.get_positions(color) {
                 for &plate_pos in plate_positions {
-                    // Check if we can reach the plate position directly
-                    if let Some(path) =
-                        world.find_path_for_player(player_index, player.position, plate_pos)
-                    {
-                        let distance = path.len() as u32;
+                    let cached_distance = world
+                        .find_path(player.position, plate_pos)
+                        .map(|p| p.len() as u32)
+                        .unwrap_or(0);
 
-                        let action = TouchPlateAction {
-                            plate_pos,
-                            plate_color: color,
-                            cached_distance: distance,
-                        };
+                    let action = TouchPlateAction {
+                        plate_pos,
+                        plate_color: color,
+                        cached_distance,
+                    };
 
-                        if action.precondition(state, player_index) {
-                            actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
-                        }
+                    if action.precondition(world, state, player_index) {
+                        actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                     }
                 }
             }

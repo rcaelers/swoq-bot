@@ -230,7 +230,7 @@ impl BoulderOnPlateStrategy {
 
                     // Check if we can reach an adjacent position to pick it up
                     let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                        state.world.is_walkable(&adj, adj)
+                        state.world.is_walkable(&adj, None)
                             && state.world.find_path(player.position, adj).is_some()
                     });
 
@@ -316,7 +316,7 @@ impl BoulderOnPlateStrategy {
                         .contains(&boulder_pos)
                     {
                         let can_reach = boulder_pos.neighbors().iter().any(|&adj| {
-                            state.world.is_walkable(&adj, adj)
+                            state.world.is_walkable(&adj, None)
                                 && state.world.find_path(player.position, adj).is_some()
                         });
 

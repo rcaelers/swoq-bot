@@ -1,5 +1,5 @@
 use crate::infra::{Color, Position, use_direction};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory};
 
@@ -57,9 +57,14 @@ impl PickupBoulderAction {
 
             // Continue BFS to adjacent walkable tiles
             for next_pos in world.valid_neighbors(&current_pos) {
-                if !visited.contains(&next_pos) && world.is_walkable(&next_pos, next_pos) {
-                    visited.insert(next_pos);
-                    queue.push_back((next_pos, distance + 1));
+                if !visited.contains(&next_pos) {
+                    // Check if next position is walkable, considering it as a waypoint not a goal
+                    // Use a dummy far-away goal to ensure boulders are treated as blocking
+                    let dummy_goal = Position::new(i32::MAX, i32::MAX);
+                    if world.is_walkable(&next_pos, Some(dummy_goal)) {
+                        visited.insert(next_pos);
+                        queue.push_back((next_pos, distance + 1));
+                    }
                 }
             }
         }
@@ -69,24 +74,31 @@ impl PickupBoulderAction {
 }
 
 impl GOAPActionTrait for PickupBoulderAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(&self, world: &WorldState, _state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
 
-        // Player must have empty inventory and boulder must exist
-        // Path reachability was already validated during generation
-        player.inventory == Inventory::None && world.boulders.contains(&self.boulder_pos)
+        // For planning: player must have empty inventory
+        if player.inventory != Inventory::None {
+            return false;
+        }
+
+        // Boulder must exist
+        world.boulders.contains(&self.boulder_pos)
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, world: &mut WorldState, state: &mut PlanningState, player_index: usize) {
         // Simulate picking up the boulder
-        state.world.players[player_index].inventory = Inventory::Boulder;
+        world.players[player_index].inventory = Inventory::Boulder;
         // Mark boulder as moved (it will be in player's inventory)
-        state.world.boulders.remove_boulder(&self.boulder_pos);
+        world.boulders.remove_boulder(&self.boulder_pos);
         // Move player to the pre-determined target position
-        state.world.players[player_index].position = self.target_pos;
+        world.players[player_index].position = self.target_pos;
         // Track whether this boulder is unexplored
         state.player_states[player_index].boulder_is_unexplored = Some(self.is_unexplored);
+    }
+
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        Some(self.target_pos)
     }
 
     fn execute(
@@ -108,12 +120,12 @@ impl GOAPActionTrait for PickupBoulderAction {
         execute_move_to(world, player_index, self.target_pos, execution_state)
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Cost is based on cached distance to target position
         5.0 + self.cached_distance as f32 * 0.1
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         self.cached_distance + 1 // +1 for picking up
     }
 
@@ -121,10 +133,14 @@ impl GOAPActionTrait for PickupBoulderAction {
         "PickupBoulder".to_string()
     }
 
-    #[tracing::instrument(skip(state))]
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    #[tracing::instrument(skip(_state))]
+    fn generate(
+        world: &WorldState,
+        _state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
 
         // Only generate from level 6 onwards
         if world.level < 6 {

@@ -1,5 +1,5 @@
-use crate::infra::{use_direction, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::infra::{Position, use_direction};
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::{DirectedAction, Inventory, Tile};
 
@@ -10,17 +10,19 @@ pub struct DropBoulderAction {
     pub drop_pos: Position, // Position where boulder will be dropped (adjacent to player)
 }
 
+impl DropBoulderAction {
+}
+
 impl GOAPActionTrait for DropBoulderAction {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool {
-        let world = &state.world;
+    fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
         let player = &world.players[player_index];
 
-        // Player must have boulder in inventory
+        // For planning: player must have boulder in inventory
         if player.inventory != Inventory::Boulder {
             return false;
         }
 
-        // Boulder must be unexplored
+        // Boulder must be unexplored (checked from planning state)
         if state.player_states[player_index].boulder_is_unexplored != Some(true) {
             return false;
         }
@@ -34,12 +36,12 @@ impl GOAPActionTrait for DropBoulderAction {
         matches!(world.map.get(&self.drop_pos), Some(Tile::Empty))
     }
 
-    fn effect_end(&self, state: &mut GameState, player_index: usize) {
+    fn effect_end(&self, world: &mut WorldState, state: &mut PlanningState, player_index: usize) {
         // Drop the boulder
-        state.world.players[player_index].inventory = Inventory::None;
+        world.players[player_index].inventory = Inventory::None;
         // Place boulder at drop position
-        state.world.map.insert(self.drop_pos, Tile::Boulder);
-        state.world.boulders.add_boulder(self.drop_pos, true); // Mark as moved
+        world.map.insert(self.drop_pos, Tile::Boulder);
+        world.boulders.add_boulder(self.drop_pos, true); // Mark as moved
         // Clear boulder tracking
         state.player_states[player_index].boulder_is_unexplored = None;
     }
@@ -58,12 +60,12 @@ impl GOAPActionTrait for DropBoulderAction {
         (action, ExecutionStatus::Complete)
     }
 
-    fn cost(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         // Low cost for dropping
         1.0
     }
 
-    fn duration(&self, _state: &GameState, _player_index: usize) -> u32 {
+    fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
         // Just 1 tick to drop
         1
     }
@@ -72,9 +74,13 @@ impl GOAPActionTrait for DropBoulderAction {
         "DropBoulder".to_string()
     }
 
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>> {
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>> {
         let mut actions = Vec::new();
-        let world = &state.world;
+        let world = &world;
         let player = &world.players[player_index];
 
         // Only generate if player has a boulder
@@ -99,7 +105,7 @@ impl GOAPActionTrait for DropBoulderAction {
 
             if !would_block {
                 let action = DropBoulderAction { drop_pos };
-                if action.precondition(state, player_index) {
+                if action.precondition(world, state, player_index) {
                     actions.push(Box::new(action) as Box<dyn GOAPActionTrait>);
                 }
             }
@@ -111,7 +117,11 @@ impl GOAPActionTrait for DropBoulderAction {
 
 /// Check if placing a boulder at this position would block critical paths
 /// Simple rule: all empty neighbors of the boulder position should remain reachable from each other
-fn would_block_critical_path(world: &WorldState, boulder_pos: Position, _player_index: usize) -> bool {
+fn would_block_critical_path(
+    world: &WorldState,
+    boulder_pos: Position,
+    _player_index: usize,
+) -> bool {
     // Find all empty neighbors of the boulder position
     let empty_neighbors: Vec<Position> = boulder_pos
         .neighbors()
@@ -133,7 +143,7 @@ fn would_block_critical_path(world: &WorldState, boulder_pos: Position, _player_
         for j in (i + 1)..empty_neighbors.len() {
             let from = empty_neighbors[i];
             let to = empty_neighbors[j];
-            
+
             // If these neighbors were connected before but not after, it blocks
             if world.find_path(from, to).is_some() && test_world.find_path(from, to).is_none() {
                 return true;

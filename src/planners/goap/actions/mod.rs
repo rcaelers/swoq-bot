@@ -34,33 +34,44 @@ pub use wait::WaitAction;
 pub use wait_on_plate::WaitOnPlateAction;
 
 use crate::infra::{Color, Position};
-use crate::planners::goap::game_state::GameState;
+use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
 
 /// Trait for GOAP actions defining their preconditions, effects, and execution.
 pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
-    fn precondition(&self, state: &GameState, player_index: usize) -> bool;
-    
+    fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool;
+
     /// Called when action is added to plan - claim resources to prevent conflicts
-    fn effect_start(&self, _state: &mut GameState, _player_index: usize) {
+    fn effect_start(
+        &self,
+        _world: &mut WorldState,
+        _state: &mut PlanningState,
+        _player_index: usize,
+    ) {
         // Default: no claims needed
     }
-    
+
     /// Called when simulating action completion - apply actual state changes
-    fn effect_end(&self, state: &mut GameState, player_index: usize);
-    
+    fn effect_end(&self, world: &mut WorldState, state: &mut PlanningState, player_index: usize);
+
+    /// Prepare phase: Set destination for CBS pathfinding
+    /// Returns the destination position this action wants to reach, or None for stationary actions
+    fn prepare(&mut self, _world: &mut WorldState, _player_index: usize) -> Option<Position> {
+        None
+    }
+
     fn execute(
         &self,
         world: &mut WorldState,
         player_index: usize,
         execution_state: &mut ActionExecutionState,
     ) -> (DirectedAction, ExecutionStatus);
-    fn cost(&self, state: &GameState, player_index: usize) -> f32;
+    fn cost(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> f32;
     fn name(&self) -> String;
 
     /// Returns the expected duration in ticks for this action to complete
-    fn duration(&self, state: &GameState, player_index: usize) -> u32;
+    fn duration(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> u32;
 
     /// Returns true if this action should terminate planning for this player
     /// Terminal actions prevent further expansion of the plan branch
@@ -74,7 +85,7 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
 
     /// Returns the reward value for this action (higher = better)
     /// Reward is added to the state evaluation when this action is taken
-    fn reward(&self, _state: &GameState, _player_index: usize) -> f32 {
+    fn reward(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
         0.0
     }
 
@@ -85,7 +96,11 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
     }
 
     /// Generate all possible instances of this action type based on current state
-    fn generate(state: &GameState, player_index: usize) -> Vec<Box<dyn GOAPActionTrait>>
+    fn generate(
+        world: &WorldState,
+        state: &PlanningState,
+        player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>>
     where
         Self: Sized;
 }
@@ -115,11 +130,13 @@ pub enum ExecutionStatus {
     InProgress,
     Complete,
     Failed,
+    Wait,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ActionExecutionState {
     pub exploration_target: Option<Position>,
+    pub hunt_target: Option<Position>,
     pub initial_object_counts: Option<ObjectCounts>,
     pub wait_ticks: u32,
     pub enemy_under_attack: Option<Position>,

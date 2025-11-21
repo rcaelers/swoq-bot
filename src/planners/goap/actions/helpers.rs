@@ -17,43 +17,45 @@ pub(super) fn execute_move_to(
         return (DirectedAction::None, ExecutionStatus::Complete);
     }
 
-    // Need to recompute path
-    if let Some(path) = world.find_path_for_player(player_index, player_pos, target) {
-        world.players[player_index].current_path = Some(path.clone());
-        world.players[player_index].current_destination = Some(target);
+    // Use CBS-computed path from current_path (set during prepare phase)
+    let player = &mut world.players[player_index];
+    if let Some(path) = &player.current_path {
+        // CBS path format: [current_pos, next_pos, ..., goal]
+        // path_to_action expects path[0] = current and path[1] = next
 
-        if let Some(action) = path_to_action(player_pos, &path) {
-            // Advance the path by removing the current position
-            let player = &mut world.players[player_index];
-            if let Some(cached) = &mut player.current_path
-                && !cached.is_empty()
-                && cached[0] == player.position
-            {
-                cached.remove(0);
+        // Check if we have a valid path with at least current and next position
+        if path.len() >= 2 && path[0] == player.position {
+            // Path starts at current position, use it directly
+            if let Some(action) = path_to_action(player.position, path) {
+                // Remove the first position (current) to advance the path
+                let remaining_path: Vec<Position> = path.iter().skip(1).copied().collect();
+                player.current_path = Some(remaining_path);
+                return (action, ExecutionStatus::InProgress);
             }
-            (action, ExecutionStatus::InProgress)
-        } else {
-            tracing::debug!(
-                "execute_move_to: Player {} could not convert path to action from {:?} to {:?}",
-                player_index,
-                player_pos,
-                target
-            );
-            world.players[player_index].current_path = None;
-            world.players[player_index].current_destination = None;
-            (DirectedAction::None, ExecutionStatus::Failed)
+        } else if !path.is_empty() && path[0] != player.position {
+            // Path doesn't start at current position (we've moved), reconstruct it
+            let mut full_path = vec![player.position];
+            full_path.extend_from_slice(path);
+
+            if full_path.len() >= 2
+                && let Some(action) = path_to_action(player.position, &full_path)
+            {
+                // Keep the path as-is (it's already advanced)
+                return (action, ExecutionStatus::InProgress);
+            }
         }
-    } else {
-        tracing::debug!(
-            "execute_move_to: Player {} could not find path from {:?} to {:?}",
-            player_index,
-            player_pos,
-            target
-        );
-        world.players[player_index].current_path = None;
-        world.players[player_index].current_destination = None;
-        (DirectedAction::None, ExecutionStatus::Failed)
     }
+
+    // No path available - CBS may have failed or path not yet computed
+    tracing::debug!(
+        "execute_move_to: Player {} has no CBS path from {:?} to {:?}",
+        player_index,
+        player_pos,
+        target
+    );
+    world.players[player_index].current_path = None;
+    world.players[player_index].current_destination = None;
+    (DirectedAction::None, ExecutionStatus::Failed)
 }
 
 pub(super) fn execute_use_adjacent(
@@ -96,7 +98,7 @@ pub(super) fn execute_avoid(
 
     for (action, new_pos) in actions {
         // Only consider walkable positions
-        if !world.is_walkable(&new_pos, danger_pos) {
+        if !world.is_walkable(&new_pos, None) {
             continue;
         }
 
