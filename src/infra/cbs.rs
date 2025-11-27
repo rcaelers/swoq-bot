@@ -332,9 +332,9 @@ impl CBS {
          };
         
         tracing::debug!("CBS: Finding initial paths for all agents");
-        for agent in agents {
+        for (agent_idx, agent) in agents.iter().enumerate() {
             tracing::debug!("CBS: Finding initial path for agent {}", agent.id);
-            match Self::replan_and_update(&mut root, agent, &env) {
+            match Self::replan_and_update(&mut root, agent, agent_idx, &env) {
                 Some(_) => tracing::debug!("CBS: Initial path found for agent {}", agent.id),
                 None => {
                     tracing::warn!("CBS: No initial path for agent {} (start: {:?}, goal: {:?})", agent.id, agent.start, agent.goal);
@@ -492,14 +492,14 @@ impl CBS {
 
         // Create child for agent1 constraint
         if let Some(child) =
-            Self::create_child_with_constraint(parent, &agents[conflict.agent1], conflict, env)
+            Self::create_child_with_constraint(parent, &agents[conflict.agent1], conflict.agent1, conflict, env)
         {
             children.push(child);
         }
 
         // Create child for agent2 constraint
         if let Some(child) =
-            Self::create_child_with_constraint(parent, &agents[conflict.agent2], conflict, env)
+            Self::create_child_with_constraint(parent, &agents[conflict.agent2], conflict.agent2, conflict, env)
         {
             children.push(child);
         }
@@ -511,6 +511,7 @@ impl CBS {
     fn create_child_with_constraint(
         parent: &CTNode,
         agent: &Agent,
+        agent_idx: usize,
         conflict: &Conflict,
         env: &PathfindingEnv,
     ) -> Option<CTNode> {
@@ -520,7 +521,7 @@ impl CBS {
         Self::add_constraint(&mut child, agent.id, conflict);
 
         // Replan and update the child node
-        Self::replan_and_update(&mut child, agent, env)?;
+        Self::replan_and_update(&mut child, agent, agent_idx, env)?;
 
         Some(child)
     }
@@ -572,7 +573,7 @@ impl CBS {
     }
 
     /// Replan path for agent and update node's cost and solution
-    fn replan_and_update(node: &mut CTNode, agent: &Agent, env: &PathfindingEnv) -> Option<()> {
+    fn replan_and_update(node: &mut CTNode, agent: &Agent, agent_idx: usize, env: &PathfindingEnv) -> Option<()> {
         tracing::trace!(
             "CBS: Replanning for agent {} (start: {:?}, goal: {:?})",
             agent.id,
@@ -614,8 +615,8 @@ impl CBS {
         );
 
         // Update solution and cost
-        node.cost = node.cost - node.solution[agent.id].len() as i32 + new_path.len() as i32;
-        node.solution[agent.id] = new_path;
+        node.cost = node.cost - node.solution[agent_idx].len() as i32 + new_path.len() as i32;
+        node.solution[agent_idx] = new_path;
 
         Some(())
     }
