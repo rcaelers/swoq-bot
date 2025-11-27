@@ -33,7 +33,7 @@ pub use touch_plate::TouchPlateAction;
 pub use wait::WaitAction;
 pub use wait_on_plate::WaitOnPlateAction;
 
-use crate::infra::{Color, Position};
+use crate::infra::Position;
 use crate::planners::goap::game_state::PlanningState;
 use crate::state::WorldState;
 use crate::swoq_interface::DirectedAction;
@@ -78,11 +78,6 @@ pub trait GOAPActionTrait: std::fmt::Debug + GOAPActionClone {
     fn is_terminal(&self) -> bool {
         false
     }
-
-    fn is_pass_through_door_with_plate(&self) -> Option<(Color, Position, Position)> {
-        None
-    }
-
     /// Returns the reward value for this action (higher = better)
     /// Reward is added to the state evaluation when this action is taken
     fn reward(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
