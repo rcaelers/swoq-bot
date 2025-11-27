@@ -340,7 +340,8 @@ impl Planner {
         let simulated_state = current_node.state_after_last_action.as_ref().unwrap();
         let mut candidates: Vec<Box<dyn GOAPActionTrait>> = Vec::new();
 
-        let explore_actions = ExploreAction::generate(simulated_world, simulated_state, player_index);
+        let explore_actions =
+            ExploreAction::generate(simulated_world, simulated_state, player_index);
         let explore_count = explore_actions.len();
         candidates.extend(explore_actions);
 
@@ -352,40 +353,51 @@ impl Planner {
         let door_count = door_actions.len();
         candidates.extend(door_actions);
 
-        let sword_actions = PickupSwordAction::generate(simulated_world, simulated_state, player_index);
+        let sword_actions =
+            PickupSwordAction::generate(simulated_world, simulated_state, player_index);
         let sword_count = sword_actions.len();
         candidates.extend(sword_actions);
 
-        let health_actions = PickupHealthAction::generate(simulated_world, simulated_state, player_index);
+        let health_actions =
+            PickupHealthAction::generate(simulated_world, simulated_state, player_index);
         let health_count = health_actions.len();
         candidates.extend(health_actions);
 
-        let attack_actions = AttackEnemyAction::generate(simulated_world, simulated_state, player_index);
+        let attack_actions =
+            AttackEnemyAction::generate(simulated_world, simulated_state, player_index);
         let attack_count = attack_actions.len();
         candidates.extend(attack_actions);
 
-        let hunt_actions = HuntEnemyAction::generate(simulated_world, simulated_state, player_index);
+        let hunt_actions =
+            HuntEnemyAction::generate(simulated_world, simulated_state, player_index);
         let hunt_count = hunt_actions.len();
         candidates.extend(hunt_actions);
 
-        let avoid_actions = AvoidEnemyAction::generate(simulated_world, simulated_state, player_index);
+        let avoid_actions =
+            AvoidEnemyAction::generate(simulated_world, simulated_state, player_index);
         let avoid_count = avoid_actions.len();
         candidates.extend(avoid_actions);
 
-        let plate_door_actions =
-            PassThroughDoorWithPlateAction::generate(simulated_world, simulated_state, player_index);
+        let plate_door_actions = PassThroughDoorWithPlateAction::generate(
+            simulated_world,
+            simulated_state,
+            player_index,
+        );
         let plate_door_count = plate_door_actions.len();
-        // candidates.extend(plate_door_actions);
+        candidates.extend(plate_door_actions);
 
-        let wait_actions = WaitOnPlateAction::generate(simulated_world, simulated_state, player_index);
+        let wait_actions =
+            WaitOnPlateAction::generate(simulated_world, simulated_state, player_index);
         let wait_count = wait_actions.len();
-        // candidates.extend(wait_actions);
+        candidates.extend(wait_actions);
 
-        let pickup_boulder_actions = PickupBoulderAction::generate(simulated_world, simulated_state, player_index);
+        let pickup_boulder_actions =
+            PickupBoulderAction::generate(simulated_world, simulated_state, player_index);
         let pickup_boulder_count = pickup_boulder_actions.len();
         candidates.extend(pickup_boulder_actions);
 
-        let drop_boulder_actions = DropBoulderAction::generate(simulated_world, simulated_state, player_index);
+        let drop_boulder_actions =
+            DropBoulderAction::generate(simulated_world, simulated_state, player_index);
         let drop_boulder_count = drop_boulder_actions.len();
         candidates.extend(drop_boulder_actions);
 
@@ -394,11 +406,13 @@ impl Planner {
         let drop_on_plate_count = drop_on_plate_actions.len();
         candidates.extend(drop_on_plate_actions);
 
-        let touch_plate_actions = TouchPlateAction::generate(simulated_world, simulated_state, player_index);
+        let touch_plate_actions =
+            TouchPlateAction::generate(simulated_world, simulated_state, player_index);
         let touch_plate_count = touch_plate_actions.len();
         candidates.extend(touch_plate_actions);
 
-        let exit_actions = ReachExitAction::generate(simulated_world, simulated_state, player_index);
+        let exit_actions =
+            ReachExitAction::generate(simulated_world, simulated_state, player_index);
         let exit_count = exit_actions.len();
         candidates.extend(exit_actions);
 
@@ -451,17 +465,29 @@ impl Planner {
             let action_start_time = current_node.player_end_times[idle_player];
             let current_node_time = *current_node.player_end_times.iter().min().unwrap();
 
-            let duration = action.duration(&current_node.world_before_last_action, &current_node.state_before_last_action, idle_player);
+            let duration = action.duration(
+                &current_node.world_before_last_action,
+                &current_node.state_before_last_action,
+                idle_player,
+            );
             let action_end_time = if action.is_terminal() {
                 u32::MAX
             } else {
                 action_start_time + duration
             };
 
-            let cost = action.cost(&current_node.world_before_last_action, &current_node.state_before_last_action, idle_player);
+            let cost = action.cost(
+                &current_node.world_before_last_action,
+                &current_node.state_before_last_action,
+                idle_player,
+            );
             let child_cost = current_node.cost + cost;
 
-            let action_reward = action.reward(&current_node.world_before_last_action, &current_node.state_before_last_action, idle_player);
+            let action_reward = action.reward(
+                &current_node.world_before_last_action,
+                &current_node.state_before_last_action,
+                idle_player,
+            );
             let child_action_rewards = current_node.action_rewards + action_reward;
 
             let mut child_sequences = current_node.player_sequences.clone();

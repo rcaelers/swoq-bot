@@ -1,6 +1,6 @@
 use crate::infra::{Color, Position};
 use crate::state::WorldState;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResourceClaim {
@@ -49,12 +49,12 @@ impl PlanningState {
         let num_players = world.players.len();
         let plates_touched = world.plates_touched.clone();
         tracing::info!("Initializing PlanningState for {} players", num_players);
-        
+
         // Initialize player states, checking for boulders in inventory
         let mut player_states = Vec::new();
         for player_idx in 0..num_players {
             let mut state = PlayerPlanningState::new();
-            
+
             // If player has a boulder in inventory, mark it as unexplored
             // This ensures DropBoulder actions are generated when replanning
             if world.players[player_idx].inventory == crate::swoq_interface::Inventory::Boulder {
@@ -64,10 +64,10 @@ impl PlanningState {
                 );
                 state.boulder_is_unexplored = Some(true);
             }
-            
+
             player_states.push(state);
         }
-        
+
         Self {
             player_states,
             plates_touched,
