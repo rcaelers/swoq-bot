@@ -1,5 +1,6 @@
 use tracing::debug;
 
+use super::super::pathfinding::find_path_for_player;
 use crate::infra::Position;
 use crate::infra::{path_to_action, use_direction};
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
@@ -24,9 +25,7 @@ impl ExecuteGoal for FetchBoulderGoal {
         for adjacent in boulder_pos.neighbors() {
             if state.world.is_walkable(&adjacent, None)
                 && let Some(path) =
-                    state
-                        .world
-                        .find_path_for_player(player_index, player_pos, adjacent)
+                    find_path_for_player(&state.world, player_index, player_pos, adjacent)
             {
                 debug!("Moving to adjacent position {:?} to reach boulder", adjacent);
                 state.world.players[player_index].current_destination = Some(adjacent);

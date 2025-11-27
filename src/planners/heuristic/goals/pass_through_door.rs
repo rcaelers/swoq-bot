@@ -1,10 +1,11 @@
 use tracing::debug;
 
-use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use crate::infra::Position;
 use crate::infra::path_to_action;
+use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use super::super::pathfinding::find_path_for_player;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct PassThroughDoorGoal {
     pub door_pos: Position,
@@ -21,11 +22,7 @@ impl PassThroughDoorGoal {
 }
 
 impl ExecuteGoal for PassThroughDoorGoal {
-    fn execute(
-        &self,
-        state: &mut PlannerState,
-        player_index: usize,
-    ) -> Option<DirectedAction> {
+    fn execute(&self, state: &mut PlannerState, player_index: usize) -> Option<DirectedAction> {
         let player = &state.world.players[player_index];
         let player_pos = player.position;
         let neighbor_pos = self.door_pos; // Position adjacent to door
@@ -91,9 +88,8 @@ impl ExecuteGoal for PassThroughDoorGoal {
         }
 
         // Otherwise, navigate to the neighbor position first
-        if let Some(path) = state
-            .world
-            .find_path_for_player(player_index, player_pos, neighbor_pos)
+        if let Some(path) =
+            find_path_for_player(&state.world, player_index, player_pos, neighbor_pos)
         {
             debug!("Navigating to neighbor {:?} before door at {:?}", neighbor_pos, door_pos);
             state.world.players[player_index].current_destination = Some(neighbor_pos);

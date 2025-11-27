@@ -1,19 +1,15 @@
 use tracing::debug;
 
-use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use crate::infra::Position;
 use crate::infra::use_direction;
+use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct DropBoulderGoal;
 
 impl ExecuteGoal for DropBoulderGoal {
-    fn execute(
-        &self,
-        state: &mut PlannerState,
-        player_index: usize,
-    ) -> Option<DirectedAction> {
+    fn execute(&self, state: &mut PlannerState, player_index: usize) -> Option<DirectedAction> {
         let player = &state.world.players[player_index];
         let player_pos = player.position;
         // Find a safe place to drop the boulder (empty adjacent tile)

@@ -1,10 +1,11 @@
 use tracing::debug;
 
-use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use crate::infra::Position;
 use crate::infra::{path_to_action, use_direction};
+use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use super::super::pathfinding::find_path_for_player;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct DropBoulderOnPlateGoal(pub Position);
 
@@ -22,9 +23,7 @@ impl ExecuteGoal for DropBoulderOnPlateGoal {
 
         // Navigate to the pressure plate
         state.world.players[player_index].current_destination = Some(plate_pos);
-        let path = state
-            .world
-            .find_path_for_player(player_index, player_pos, plate_pos)?;
+        let path = find_path_for_player(&state.world, player_index, player_pos, plate_pos)?;
         state.world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }

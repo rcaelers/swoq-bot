@@ -1,6 +1,7 @@
 use tracing::debug;
 
 use crate::infra::Position;
+use super::pathfinding::find_path_for_player;
 use crate::planners::heuristic::planner_state::PlannerState;
 
 // Goal modules
@@ -83,10 +84,7 @@ pub fn validate_destination(state: &mut PlannerState, player_index: usize) {
 pub fn try_keep_destination(state: &mut PlannerState, player_index: usize) -> bool {
     let player_pos = state.world.players[player_index].position;
     if let Some(dest) = state.world.players[player_index].current_destination {
-        if let Some(new_path) = state
-            .world
-            .find_path_for_player(player_index, player_pos, dest)
-        {
+        if let Some(new_path) = find_path_for_player(&state.world, player_index, player_pos, dest) {
             debug!("Continuing to existing destination {:?}, path length={}", dest, new_path.len());
             state.world.players[player_index].current_path = Some(new_path);
             return true;

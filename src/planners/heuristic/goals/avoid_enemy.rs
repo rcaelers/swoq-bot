@@ -1,7 +1,7 @@
+use crate::infra::Position;
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Position;
 
 pub struct AvoidEnemyGoal(pub Position);
 
@@ -40,11 +40,7 @@ impl AvoidEnemyGoal {
 }
 
 impl ExecuteGoal for AvoidEnemyGoal {
-    fn execute(
-        &self,
-        state: &mut PlannerState,
-        player_index: usize,
-    ) -> Option<DirectedAction> {
+    fn execute(&self, state: &mut PlannerState, player_index: usize) -> Option<DirectedAction> {
         self.flee_direction(state, player_index)
     }
 }

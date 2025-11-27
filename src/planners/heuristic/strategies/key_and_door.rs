@@ -3,6 +3,7 @@ use tracing::debug;
 
 use crate::infra::Color;
 use crate::planners::heuristic::goals::Goal;
+use crate::planners::heuristic::pathfinding::find_path_with_custom_walkability;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::planners::heuristic::strategies::planner::{SelectGoal, StrategyType};
 
@@ -203,32 +204,31 @@ impl KeyAndDoorStrategy {
                     );
 
                     let can_reach = if use_custom_walkability {
-                        state
-                            .world
-                            .find_path_with_custom_walkability(
-                                player.position,
-                                key_pos,
-                                |pos, goal, _tick| {
-                                    let is_matching_door = matches!(
-                                        (state.world.map.get(pos), color),
-                                        (Some(crate::swoq_interface::Tile::DoorRed), Color::Red)
-                                            | (
-                                                Some(crate::swoq_interface::Tile::DoorGreen),
-                                                Color::Green
-                                            )
-                                            | (
-                                                Some(crate::swoq_interface::Tile::DoorBlue),
-                                                Color::Blue
-                                            )
-                                    );
-                                    if is_matching_door {
-                                        true
-                                    } else {
-                                        state.world.is_walkable(pos, Some(goal))
-                                    }
-                                },
-                            )
-                            .is_some()
+                        find_path_with_custom_walkability(
+                            &state.world,
+                            player.position,
+                            key_pos,
+                            |pos, goal, _tick| {
+                                let is_matching_door = matches!(
+                                    (state.world.map.get(pos), color),
+                                    (Some(crate::swoq_interface::Tile::DoorRed), Color::Red)
+                                        | (
+                                            Some(crate::swoq_interface::Tile::DoorGreen),
+                                            Color::Green
+                                        )
+                                        | (
+                                            Some(crate::swoq_interface::Tile::DoorBlue),
+                                            Color::Blue
+                                        )
+                                );
+                                if is_matching_door {
+                                    true
+                                } else {
+                                    state.world.is_walkable(pos, Some(goal))
+                                }
+                            },
+                        )
+                        .is_some()
                     } else {
                         state.world.find_path(player.position, key_pos).is_some()
                     };

@@ -1,5 +1,6 @@
 use tracing::debug;
 
+use super::super::pathfinding::find_path_for_player;
 use crate::infra::path_to_action;
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::planners::heuristic::goals::{try_keep_destination, validate_destination};
@@ -37,9 +38,8 @@ impl ExecuteGoal for ExploreGoal {
                 );
             }
             attempts += 1;
-            if let Some(path) = state
-                .world
-                .find_path_for_player(player_index, player_pos, *target)
+            if let Some(path) =
+                find_path_for_player(&state.world, player_index, player_pos, *target)
             {
                 debug!(
                     "New frontier destination: {:?}, path length={} (tried {} tiles)",

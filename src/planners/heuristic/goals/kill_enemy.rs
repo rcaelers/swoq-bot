@@ -1,6 +1,7 @@
 use crate::infra::Position;
 use crate::infra::{path_to_action, use_direction};
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use super::super::pathfinding::find_path_for_player;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
 
@@ -21,9 +22,7 @@ impl ExecuteGoal for KillEnemyGoal {
         for adjacent in enemy_pos.neighbors() {
             if state.world.is_walkable(&adjacent, None)
                 && let Some(path) =
-                    state
-                        .world
-                        .find_path_for_player(player_index, player_pos, adjacent)
+                    find_path_for_player(&state.world, player_index, player_pos, adjacent)
             {
                 state.world.players[player_index].current_path = Some(path.clone());
                 return path_to_action(player_pos, &path);

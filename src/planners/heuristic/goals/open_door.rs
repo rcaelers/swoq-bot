@@ -3,6 +3,7 @@ use tracing::debug;
 use crate::infra::Color;
 use crate::infra::{path_to_action, use_direction};
 use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use super::super::pathfinding::find_path_for_player;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
 
@@ -64,9 +65,7 @@ impl ExecuteGoal for OpenDoorGoal {
         // Navigate to the empty neighbor of the door
         debug!("Navigating to neighbor {:?} of door at {:?}", target_pos, door_pos);
         state.world.players[player_index].current_destination = Some(target_pos);
-        let path = state
-            .world
-            .find_path_for_player(player_index, player_pos, target_pos)?;
+        let path = find_path_for_player(&state.world, player_index, player_pos, target_pos)?;
         state.world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }

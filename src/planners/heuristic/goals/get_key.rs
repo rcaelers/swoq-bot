@@ -1,9 +1,10 @@
-use crate::planners::heuristic::goals::goal::ExecuteGoal;
+use super::super::pathfinding::find_path_for_player;
+use crate::infra::Color;
 use crate::infra::path_to_action;
+use crate::planners::heuristic::goals::goal::ExecuteGoal;
 use crate::planners::heuristic::goals::validate_destination;
 use crate::planners::heuristic::planner_state::PlannerState;
 use crate::swoq_interface::DirectedAction;
-use crate::infra::Color;
 
 pub struct GetKeyGoal(pub Color);
 
@@ -18,9 +19,7 @@ impl ExecuteGoal for GetKeyGoal {
 
         // Compute new path
         state.world.players[player_index].current_destination = Some(key_pos);
-        let path = state
-            .world
-            .find_path_for_player(player_index, player_pos, key_pos)?;
+        let path = find_path_for_player(&state.world, player_index, player_pos, key_pos)?;
         state.world.players[player_index].current_path = Some(path.clone());
         path_to_action(player_pos, &path)
     }
