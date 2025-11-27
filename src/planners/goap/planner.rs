@@ -305,13 +305,13 @@ impl Planner {
 
         let current_player_time = current_node.player_end_times[player_index];
 
-        // Find earliest time among OTHER players who have actions
+        // Find earliest time among OTHER players (including those without actions yet)
+        // Players without actions are idle at their end_time and may get actions in other branches
         let other_players_earliest_time = current_node
             .player_end_times
             .iter()
             .enumerate()
             .filter(|(idx, _)| *idx != player_index)
-            .filter(|(idx, _)| !current_node.player_sequences[*idx].is_empty()) // Only consider players with actions
             .map(|(_, &time)| time)
             .min();
 
