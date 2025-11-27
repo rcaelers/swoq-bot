@@ -197,10 +197,38 @@ impl Planner {
 
     fn evaluate(&mut self, node: &PlanNode) {
         if node.total_actions() > 0 {
-            let new_world = node.world_after_last_action.as_ref().unwrap();
-            let new_state = node.state_after_last_action.as_ref().unwrap();
+            // For evaluation, we need to apply ALL actions (including those beyond last_processed_time)
+            // Start from world_after_last_action which has actions up to last_processed_time applied
+            let mut eval_world = node
+                .world_after_last_action
+                .as_ref()
+                .unwrap_or(&node.world_before_last_action)
+                .clone();
+            let mut eval_state = node
+                .state_after_last_action
+                .as_ref()
+                .unwrap_or(&node.state_before_last_action)
+                .clone();
 
-            let state_reward = evaluate_state(new_world, new_state, &node.initial_world, &node.initial_state);
+            // There's at most one action that needs effect_end applied: the last action for one player
+            // that starts after last_processed_time. Find which player has an action at last_processed_time.
+            for (player_id, sequence) in node.player_sequences.iter().enumerate() {
+                if !sequence.is_empty()
+                    && node.player_end_times[player_id] > node.last_processed_time
+                {
+                    // This player's last action starts after last_processed_time
+                    let last_action = sequence.last().unwrap();
+                    tracing::trace!(
+                        player_id = player_id,
+                        action = last_action.name(),
+                        "Applying effect_end of last action for evaluation"
+                    );
+                    last_action.effect_end(&mut eval_world, &mut eval_state, player_id);
+                }
+            }
+
+            let state_reward =
+                evaluate_state(&eval_world, &eval_state, &node.initial_world, &node.initial_state);
 
             // Skip invalid plans (NEG_INFINITY) - don't store them as best_plan
             if state_reward.is_infinite() && state_reward.is_sign_negative() {
@@ -222,7 +250,7 @@ impl Planner {
             );
 
             // Log player positions and destinations
-            for (player_id, player) in new_world.players.iter().enumerate() {
+            for (player_id, player) in eval_world.players.iter().enumerate() {
                 tracing::info!(
                     player_id = player_id,
 
