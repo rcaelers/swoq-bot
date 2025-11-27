@@ -66,8 +66,11 @@ impl GOAPActionTrait for ReachExitAction {
             let other_player_index = 1 - player_index;
             let other_player = &world.players[other_player_index];
 
-            // Check if other player can reach the exit
-            world.find_path(other_player.position, self.exit_pos)?;
+            // Only check reachability if other player is still active
+            if other_player.is_active {
+                // Check if other player can reach the exit
+                world.find_path(other_player.position, self.exit_pos)?;
+            }
         }
 
         // Check if this player can reach the exit
