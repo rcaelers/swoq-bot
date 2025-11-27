@@ -15,6 +15,11 @@ pub struct TouchPlateAction {
 
 impl GOAPActionTrait for TouchPlateAction {
     fn precondition(&self, world: &WorldState, state: &PlanningState, player_index: usize) -> bool {
+        // TouchPlateAction is only for single-player mode
+        if world.is_two_player_mode() {
+            return false;
+        }
+
         let player = &world.players[player_index];
 
         // For planning: only when player has nothing else to do
