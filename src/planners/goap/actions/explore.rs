@@ -248,15 +248,30 @@ impl GOAPActionTrait for ExploreAction {
         let world = &world;
         let player = &world.players[player_index];
 
+        tracing::trace!(
+            player_index = player_index,
+            unexplored_frontier_size = player.unexplored_frontier.len(),
+            "Generating ExploreAction"
+        );
         // Find nearest frontier and cache the distance for cost/duration
-        if let Some(nearest) = Self::find_nearest_frontier(player)
-            && let Some(path) = world.find_path(player.position, nearest)
-        {
-            let action = ExploreAction {
-                cached_distance: path.len() as u32,
-            };
-            if action.precondition(world, state, player_index) {
-                return vec![Box::new(action)];
+        if let Some(nearest) = Self::find_nearest_frontier(player) {
+            tracing::trace!(
+                player_index = player_index,
+                nearest_frontier = ?nearest,
+                "Generating ExploreAction"
+            );
+            if let Some(path) = world.find_path(player.position, nearest) {
+                tracing::trace!(
+                    player_index = player_index,
+                    path_length = path.len(),
+                    "Found path to nearest frontier"
+                );
+                let action = ExploreAction {
+                    cached_distance: path.len() as u32,
+                };
+                if action.precondition(world, state, player_index) {
+                    return vec![Box::new(action)];
+                }
             }
         }
         vec![]
