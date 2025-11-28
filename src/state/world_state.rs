@@ -803,34 +803,6 @@ impl WorldState {
     /// Check if a position is walkable, considering pressure plate states
     /// The `goal` parameter is optional - if None, treats items/doors/etc as non-walkable
     pub fn is_walkable(&self, pos: &Position, goal: Option<Position>) -> bool {
-        self.is_walkable_for_player(pos, goal, None)
-    }
-
-    /// Get all valid in-bounds neighbors of a position
-    /// Returns only neighbors that are within the map bounds
-    pub fn valid_neighbors(&self, pos: &Position) -> Vec<Position> {
-        pos.neighbors()
-            .iter()
-            .filter(|&&neighbor| {
-                neighbor.x >= 0
-                    && neighbor.x < self.map.width
-                    && neighbor.y >= 0
-                    && neighbor.y < self.map.height
-            })
-            .copied()
-            .collect()
-    }
-
-    /// Check if a position is walkable for a specific player
-    /// If planning_player_pos is provided, doors won't be considered open if that player
-    /// is the only one on the pressure plate (since they'll leave it to move)
-    /// If goal is None, items/doors/unknown tiles are treated as non-walkable
-    pub fn is_walkable_for_player(
-        &self,
-        pos: &Position,
-        goal: Option<Position>,
-        planning_player_pos: Option<Position>,
-    ) -> bool {
         match self.map.get(pos) {
             Some(
                 Tile::Empty
@@ -841,19 +813,15 @@ impl WorldState {
                 | Tile::Treasure,
             ) => true,
             // Doors are walkable if their corresponding pressure plate is pressed
-            // (but not if the planning player is the only one on the plate)
             // Also allow doors if they are the goal destination (for OpenDoor action)
             Some(Tile::DoorRed) => {
-                goal.is_some_and(|g| *pos == g)
-                    || self.is_door_open_for_player(Color::Red, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Red)
             }
             Some(Tile::DoorGreen) => {
-                goal.is_some_and(|g| *pos == g)
-                    || self.is_door_open_for_player(Color::Green, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Green)
             }
             Some(Tile::DoorBlue) => {
-                goal.is_some_and(|g| *pos == g)
-                    || self.is_door_open_for_player(Color::Blue, planning_player_pos)
+                goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Blue)
             }
             // Keys: always avoid unless it's the destination
             Some(
@@ -872,6 +840,21 @@ impl WorldState {
             None => goal.is_some_and(|g| *pos == g),
             _ => false,
         }
+    }
+
+    /// Get all valid in-bounds neighbors of a position
+    /// Returns only neighbors that are within the map bounds
+    pub fn valid_neighbors(&self, pos: &Position) -> Vec<Position> {
+        pos.neighbors()
+            .iter()
+            .filter(|&&neighbor| {
+                neighbor.x >= 0
+                    && neighbor.x < self.map.width
+                    && neighbor.y >= 0
+                    && neighbor.y < self.map.height
+            })
+            .copied()
+            .collect()
     }
 
     /// Check if a door is open (has a player or boulder on its pressure plate)

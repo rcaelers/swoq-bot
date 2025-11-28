@@ -4,8 +4,62 @@
 
 use tracing::debug;
 
-use crate::infra::{AStar, Position};
+use crate::infra::{AStar, Color, Position};
 use crate::state::{Map, WorldState};
+use crate::swoq_interface::Tile;
+
+/// Check if a position is walkable for a specific player
+/// If planning_player_pos is provided, doors won't be considered open if that player
+/// is the only one on the pressure plate (since they'll leave it to move)
+/// If goal is None, items/doors/unknown tiles are treated as non-walkable
+fn is_walkable_for_player(
+    world: &WorldState,
+    pos: &Position,
+    goal: Option<Position>,
+    planning_player_pos: Option<Position>,
+) -> bool {
+    match world.map.get(pos) {
+        Some(
+            Tile::Empty
+            | Tile::Player
+            | Tile::PressurePlateRed
+            | Tile::PressurePlateGreen
+            | Tile::PressurePlateBlue
+            | Tile::Treasure,
+        ) => true,
+        // Doors are walkable if their corresponding pressure plate is pressed
+        // (but not if the planning player is the only one on the plate)
+        // Also allow doors if they are the goal destination (for OpenDoor action)
+        Some(Tile::DoorRed) => {
+            goal.is_some_and(|g| *pos == g)
+                || world.is_door_open_for_player(Color::Red, planning_player_pos)
+        }
+        Some(Tile::DoorGreen) => {
+            goal.is_some_and(|g| *pos == g)
+                || world.is_door_open_for_player(Color::Green, planning_player_pos)
+        }
+        Some(Tile::DoorBlue) => {
+            goal.is_some_and(|g| *pos == g)
+                || world.is_door_open_for_player(Color::Blue, planning_player_pos)
+        }
+        // Keys: always avoid unless it's the destination
+        Some(
+            Tile::KeyRed
+            | Tile::KeyGreen
+            | Tile::KeyBlue
+            | Tile::Sword
+            | Tile::Health
+            | Tile::Exit
+            | Tile::Enemy
+            | Tile::Unknown,
+        ) => {
+            // Allow walking on the destination key/item/enemy, avoid all others
+            goal.is_some_and(|g| *pos == g)
+        }
+        None => goal.is_some_and(|g| *pos == g),
+        _ => false,
+    }
+}
 
 /// Find a path that avoids colliding with another player's planned path
 fn find_path_avoiding_player(
@@ -39,7 +93,7 @@ fn find_path_avoiding_player(
         |pos, goal_pos, tick| {
             // First check basic walkability (including door states)
             // Pass the planning player's position so doors they're holding open aren't considered walkable
-            if !world.is_walkable_for_player(pos, Some(goal_pos), Some(planning_player_pos)) {
+            if !is_walkable_for_player(world, pos, Some(goal_pos), Some(planning_player_pos)) {
                 return false;
             }
 
@@ -169,7 +223,8 @@ pub fn find_path_for_player(
                     && random_pos.x < world.map.width
                     && random_pos.y >= 0
                     && random_pos.y < world.map.height
-                    && world.is_walkable_for_player(
+                    && is_walkable_for_player(
+                        world,
                         &random_pos,
                         Some(random_pos),
                         Some(planning_player_pos),
