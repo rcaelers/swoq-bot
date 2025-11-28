@@ -135,6 +135,7 @@ pub struct ActionExecutionState {
     pub initial_object_counts: Option<ObjectCounts>,
     pub wait_ticks: u32,
     pub enemy_under_attack: Option<Position>,
+    pub phase_complete: bool, // For multi-phase actions like WaitOnPlateAction
 }
 
 #[derive(Debug, Clone, Default)]

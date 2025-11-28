@@ -34,7 +34,7 @@ impl Game {
             world: WorldState::new(0, 0, 0),
             current_level: 0,
             planner_max_depth: goap_max_depth,
-            planner_timeout_ms: 500,
+            planner_timeout_ms: 5000,
             executor: Executor::new(),
             successful_runs: 0,
             failed_runs: 0,

@@ -814,9 +814,7 @@ impl WorldState {
             ) => true,
             // Doors are walkable if their corresponding pressure plate is pressed
             // Also allow doors if they are the goal destination (for OpenDoor action)
-            Some(Tile::DoorRed) => {
-                goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Red)
-            }
+            Some(Tile::DoorRed) => goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Red),
             Some(Tile::DoorGreen) => {
                 goal.is_some_and(|g| *pos == g) || self.is_door_open(Color::Green)
             }
@@ -969,7 +967,9 @@ impl WorldState {
                 // Check walkability with optimistic assumptions for frontier detection
                 let walkable = match self.map.get(&neighbor) {
                     Some(Tile::Wall) | Some(Tile::Boulder) | Some(Tile::Enemy)
-                    | Some(Tile::Exit) => false,
+                    | Some(Tile::Health) | Some(Tile::Sword) | Some(Tile::KeyRed)
+                    | Some(Tile::KeyGreen) | Some(Tile::KeyBlue) => false,
+                    Some(Tile::Exit) => false,
                     // Doors: check if player has key OR if door is currently open
                     Some(Tile::DoorRed) => {
                         matches!(player_inventory, Inventory::KeyRed)

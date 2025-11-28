@@ -13,6 +13,9 @@ pub struct PlayerState {
     pub current_destination: Option<Position>,
     pub current_path: Option<Vec<Position>>,
     pub unexplored_frontier: HashSet<Position>,
+    /// For coop door coordination: the target position this player is trying to reach
+    /// Set by PassThroughDoorWithPlateAction, read by WaitOnPlateAction on other player
+    pub coop_door_target: Option<Position>,
 }
 
 impl PlayerState {
@@ -26,6 +29,7 @@ impl PlayerState {
             current_destination: None,
             current_path: None,
             unexplored_frontier: HashSet::new(),
+            coop_door_target: None,
         }
     }
 

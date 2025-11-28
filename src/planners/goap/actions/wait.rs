@@ -19,21 +19,35 @@ impl GOAPActionTrait for WaitAction {
         format!("Wait({})", self.duration)
     }
 
-
-    fn precondition(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> bool {
+    fn precondition(
+        &self,
+        _world: &WorldState,
+        _state: &PlanningState,
+        _player_index: usize,
+    ) -> bool {
         true // Can always wait as fallback
     }
 
-    fn effect_start(&self, _world: &mut WorldState, _state: &mut PlanningState, _player_index: usize) {
+    fn effect_start(
+        &self,
+        _world: &mut WorldState,
+        _state: &mut PlanningState,
+        _player_index: usize,
+    ) {
         // No state changes
     }
 
-    fn effect_end(&self, _world: &mut WorldState, _state: &mut PlanningState, _player_index: usize) {
+    fn effect_end(
+        &self,
+        _world: &mut WorldState,
+        _state: &mut PlanningState,
+        _player_index: usize,
+    ) {
         // No state changes - player just waits
     }
 
     fn cost(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> f32 {
-        0.0 // Free action
+        1.0
     }
 
     fn duration(&self, _world: &WorldState, _state: &PlanningState, _player_index: usize) -> u32 {
@@ -53,7 +67,11 @@ impl GOAPActionTrait for WaitAction {
         (DirectedAction::None, ExecutionStatus::Complete)
     }
 
-    fn generate(_world: &WorldState, _state: &PlanningState, _player_index: usize) -> Vec<Box<dyn GOAPActionTrait>>
+    fn generate(
+        _world: &WorldState,
+        _state: &PlanningState,
+        _player_index: usize,
+    ) -> Vec<Box<dyn GOAPActionTrait>>
     where
         Self: Sized,
     {
