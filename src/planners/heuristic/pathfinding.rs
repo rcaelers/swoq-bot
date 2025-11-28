@@ -8,6 +8,61 @@ use crate::infra::{AStar, Color, Position};
 use crate::state::{Map, WorldState};
 use crate::swoq_interface::Tile;
 
+/// Check if a door is open for a specific player's pathfinding
+/// If planning_player_pos is provided and they're the ONLY thing on the plate,
+/// returns false (door will close when they move)
+fn is_door_open_for_player(
+    world: &WorldState,
+    color: Color,
+    planning_player_pos: Option<Position>,
+) -> bool {
+    if let Some(plate_positions) = world.pressure_plates.get_positions(color) {
+        let mut has_boulder = false;
+        let mut other_player_on_plate = false;
+        let mut planning_player_on_plate = false;
+
+        // Check if any boulder is on a matching plate
+        for &plate_pos in plate_positions {
+            if matches!(world.map.get(&plate_pos), Some(Tile::Boulder)) {
+                has_boulder = true;
+                break;
+            }
+        }
+
+        // If there's a boulder, door is open regardless of players
+        if has_boulder {
+            return true;
+        }
+
+        // Check which players are on the plate
+        for player in &world.players {
+            if plate_positions.contains(&player.position) {
+                if Some(player.position) == planning_player_pos {
+                    planning_player_on_plate = true;
+                } else {
+                    other_player_on_plate = true;
+                }
+            }
+        }
+
+        // Door is open if:
+        // - There's another player on the plate (not the planning player), OR
+        // - Planning player is on plate but we're not doing planning (backward compatibility)
+        if other_player_on_plate {
+            return true;
+        }
+
+        if planning_player_on_plate && planning_player_pos.is_none() {
+            return true;
+        }
+
+        // Planning player is the only one on plate, door will close when they move
+        false
+    } else {
+        false
+    }
+}
+
 /// Check if a position is walkable for a specific player
 /// If planning_player_pos is provided, doors won't be considered open if that player
 /// is the only one on the pressure plate (since they'll leave it to move)
@@ -32,15 +87,15 @@ fn is_walkable_for_player(
         // Also allow doors if they are the goal destination (for OpenDoor action)
         Some(Tile::DoorRed) => {
             goal.is_some_and(|g| *pos == g)
-                || world.is_door_open_for_player(Color::Red, planning_player_pos)
+                || is_door_open_for_player(world, Color::Red, planning_player_pos)
         }
         Some(Tile::DoorGreen) => {
             goal.is_some_and(|g| *pos == g)
-                || world.is_door_open_for_player(Color::Green, planning_player_pos)
+                || is_door_open_for_player(world, Color::Green, planning_player_pos)
         }
         Some(Tile::DoorBlue) => {
             goal.is_some_and(|g| *pos == g)
-                || world.is_door_open_for_player(Color::Blue, planning_player_pos)
+                || is_door_open_for_player(world, Color::Blue, planning_player_pos)
         }
         // Keys: always avoid unless it's the destination
         Some(

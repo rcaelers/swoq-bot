@@ -859,62 +859,43 @@ impl WorldState {
 
     /// Check if a door is open (has a player or boulder on its pressure plate)
     pub fn is_door_open(&self, color: Color) -> bool {
-        self.is_door_open_for_player(color, None)
-    }
-
-    /// Check if a door is open for a specific player's pathfinding
-    /// If planning_player_pos is provided and they're the ONLY thing on the plate,
-    /// returns false (door will close when they move)
-    pub fn is_door_open_for_player(
-        &self,
-        color: Color,
-        planning_player_pos: Option<Position>,
-    ) -> bool {
         if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
-            let mut has_boulder = false;
-            let mut other_player_on_plate = false;
-            let mut planning_player_on_plate = false;
-
-            // Check if any boulder is on a matching plate
             for &plate_pos in plate_positions {
+                // Check if a boulder is on this plate
                 if matches!(self.map.get(&plate_pos), Some(Tile::Boulder)) {
-                    has_boulder = true;
-                    break;
+                    return true;
                 }
-            }
 
-            // If there's a boulder, door is open regardless of players
-            if has_boulder {
-                return true;
-            }
-
-            // Check which players are on the plate
-            for player in &self.players {
-                if plate_positions.contains(&player.position) {
-                    if Some(player.position) == planning_player_pos {
-                        planning_player_on_plate = true;
-                    } else {
-                        other_player_on_plate = true;
+                // Check if any player is on this plate
+                for player in &self.players {
+                    if player.position == plate_pos {
+                        return true;
                     }
                 }
             }
-
-            // Door is open if:
-            // - There's another player on the plate (not the planning player), OR
-            // - Planning player is on plate but we're not doing planning (backward compatibility)
-            if other_player_on_plate {
-                return true;
-            }
-
-            if planning_player_on_plate && planning_player_pos.is_none() {
-                return true;
-            }
-
-            // Planning player is the only one on plate, door will close when they move
-            false
-        } else {
-            false
         }
+        false
+    }
+
+    /// Check if a door is held open by other players or boulders (not by this specific player)
+    /// Used by CBS to determine if a door will remain open when this player moves
+    fn is_door_held_open_by_others(&self, color: Color, player_index: usize) -> bool {
+        if let Some(plate_positions) = self.pressure_plates.get_positions(color) {
+            for plate_pos in plate_positions {
+                // Check if a boulder is on this plate
+                if self.boulders.get_all_positions().contains(plate_pos) {
+                    return true;
+                }
+
+                // Check if another player (not this one) is on this plate
+                for (idx, player) in self.players.iter().enumerate() {
+                    if idx != player_index && player.is_active && player.position == *plate_pos {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Check if a position is adjacent to any enemy
@@ -1039,33 +1020,29 @@ impl WorldState {
     /// Updates each player's current_path field with collision-free paths
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn compute_cbs_paths(&mut self) {
-        // Collect agents from players with destinations
+        // Collect agents from all active players
+        // Players without a destination are treated as stationary (start == goal)
         let agents: Vec<Agent> = self
             .players
             .iter()
             .enumerate()
             .filter_map(|(idx, player)| {
                 if !player.is_active {
-                    tracing::debug!(
-                        "Skipping inactive player {} at {:?}",
-                        idx,
-                        player.position
-                    );
+                    tracing::debug!("Skipping inactive player {} at {:?}", idx, player.position);
                     return None;
                 }
 
-                player.current_destination.map(|goal| {
-                    tracing::debug!(
-                        "Adding agent {} with destination {:?} (current pos: {:?})",
-                        idx,
-                        goal,
-                        player.position
-                    );
-                    Agent {
-                        id: idx,
-                        start: player.position,
-                        goal,
-                    }
+                let goal = player.current_destination.unwrap_or(player.position);
+                tracing::debug!(
+                    "Adding agent {} with destination {:?} (current pos: {:?})",
+                    idx,
+                    goal,
+                    player.position
+                );
+                Some(Agent {
+                    id: idx,
+                    start: player.position,
+                    goal,
                 })
             })
             .collect();
@@ -1097,17 +1074,20 @@ impl WorldState {
                 | Some(Tile::PressurePlateGreen)
                 | Some(Tile::PressurePlateBlue)
                 | Some(Tile::Treasure) => true,
-                // Doors are walkable if open OR if it's THIS agent's goal and they have the key
+                // Doors are walkable if:
+                // 1. Another player is on the pressure plate, OR
+                // 2. A boulder is on the pressure plate, OR
+                // 3. It's THIS agent's goal and they have the key
                 Some(Tile::DoorRed) => {
-                    self.is_door_open(Color::Red)
+                    self.is_door_held_open_by_others(Color::Red, agent_id)
                         || (*pos == goal && self.has_key(player, Color::Red))
                 }
                 Some(Tile::DoorGreen) => {
-                    self.is_door_open(Color::Green)
+                    self.is_door_held_open_by_others(Color::Green, agent_id)
                         || (*pos == goal && self.has_key(player, Color::Green))
                 }
                 Some(Tile::DoorBlue) => {
-                    self.is_door_open(Color::Blue)
+                    self.is_door_held_open_by_others(Color::Blue, agent_id)
                         || (*pos == goal && self.has_key(player, Color::Blue))
                 }
                 // Walls and Unknown are never walkable
